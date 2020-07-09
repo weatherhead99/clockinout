@@ -6,22 +6,21 @@ Created on Thu Jul  9 02:54:03 2020
 @author: danw
 """
 
-from sqlalchemy import Column, Integer, String, ForeignKey, Table
+from sqlalchemy import Column, Integer, String, ForeignKey, Table, DateTime, Boolean
 from sqlalchemy.ext.declarative import declarative_base, DeclarativeMeta
 from sqlalchemy.orm import relationship
 from sqlalchemy.orm.session import Session
-from typing import TypeVar, Union, Optional
-
+from typing import TypeVar, Union, Optional, Type
 
 DBBase = declarative_base()
-S = TypeVar("SchemaType", bound=DBBase)
+S = TypeVar("S", bound=DBBase)
 
 
 #TODO: wrapper that validates and requires DEFAULT_LOOKUP_KEY
 #OR: do it via mypy
 
 
-def lookup_or_pass(session: Session, val: Union[S,str], targettp: type) -> Optional[S]:
+def lookup_or_pass(session: Session, val: Union[S,str], targettp: Type[S]) -> Optional[S]:
     """ convenience function to query unique values from the database
         
         session: sqlalchemy.orm.session.Session
@@ -30,7 +29,7 @@ def lookup_or_pass(session: Session, val: Union[S,str], targettp: type) -> Optio
             value to query. If this is already an instance of a database schema
             object, it will be returned unchanged
         
-        targettp: type
+        targettp: Type[S]
             the schema type to query. must have an attribute named DEFAULT_LOOKUP_KEY
             which will be used for the query
     """
@@ -64,6 +63,8 @@ class Org(DBBase):
                          back_populates="orgs")
     
     admin_user = Column(Integer, ForeignKey("users.user_id"), nullable=False)
+    parent_org = Column(Integer)
+    membership_enabled = Column(Boolean)
 
 class Tag(DBBase):
     DEFAULT_LOOKUP_KEY = "tagstr"
@@ -80,8 +81,16 @@ class User(DBBase):
     tags = relationship("Tag")
     orgs = relationship("Org", secondary=user_org_association_table,
                         back_populates="users")
+    sessions = relationship("Session")
     hashed_pw = Column(String)
 
+class Session(DBBase):
+    __tablename__ = "sessions"
+    session_id = Column(Integer, primary_key=True)
+    time_start = Column(DateTime)
+    time_end = Column(DateTime)
+    user_id = Column(Integer, ForeignKey("users.user_id"))
+    
 
 if __name__ == "__main__":
     from sqlalchemy import create_engine

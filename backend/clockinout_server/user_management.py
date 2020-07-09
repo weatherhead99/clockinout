@@ -8,7 +8,7 @@ Created on Thu Jul  9 03:45:17 2020
 
 from .db.schema import User
 from sqlalchemy.orm.session import Session
-from typing import Callable, Any, Union, Iterable
+from typing import Callable, Any, Union, Iterable, Optional
 import nacl.pwhash
 from password_strength import PasswordPolicy
 
@@ -25,7 +25,7 @@ class UserManager:
         if unhashed_pw is not None:
             if len(self.password_policy.test(unhashed_pw)) > 0:
                 raise ValueError("password failed complexity policy")
-            hashed_pw = nacl.pwhash.str(unhashed_pw.encode("utf-8"))
+            hashed_pw : Optional[str] = nacl.pwhash.str(unhashed_pw.encode("utf-8")).decode("utf-8")
         else:
             hashed_pw = None
         new_user = User(name=name, hashed_pw=hashed_pw)

@@ -14,9 +14,13 @@ from typing import Union, Optional, TypeVar
 class TagManager:
     def register_new_tag(self, dbsession: Session, tagid: bytes, 
                          user: Optional[Union[str, User]] = None) -> Tag:
-        
-        
-        user = lookup_or_pass(dbsession, user, User)
-        new_tag = Tag(tagstr=tagid, user=user)
+
+        if user is not None:
+            user = lookup_or_pass(dbsession, inner_user, User)
+        else:
+            user_id = None
+
+        tagstr = tagid.hex()
+        new_tag = Tag(tagstr=tagstr, user_id=user_id)
         dbsession.add(new_tag)
         return new_tag
