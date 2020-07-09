@@ -1,0 +1,127 @@
+syntax = "proto3";
+
+package clockinout;
+import "google/protobuf/timestamp.proto";
+
+// general information messages 
+
+message TimeRange{
+  google.protobuf.Timestamp start = 1;
+  google.protobuf.Timestamp end =2;
+}
+
+message TagInfo{
+  bytes tag_uid = 1;
+}
+
+message LocationInfo{
+  string name = 1;
+  bytes uid = 2;
+  bytes sessionkey = 3;
+}
+
+message ErrorInfo {
+  bool has_error = 1;
+  string error_msg = 2;
+  //could do this as an enum if wanted, but imposes limitations
+  uint32 error_code = 3;
+}
+
+message UserInfo {
+  string name = 1;
+  string org = 2;
+  TagInfo user_tag = 3;
+}
+
+message UserSession {
+  UserInfo user = 1;
+  TimeRange times = 2;
+  LocationInfo location_in = 3;
+  LocationInfo location_out = 4;
+}
+
+// specific request & response messages
+
+message ClockInOutRequest {
+  TagInfo tag = 1;
+  //time as estimated by the clockin device
+  google.protobuf.Timestamp estimated_time = 2;
+  //location of the clockin device
+  LocationInfo location = 3;
+}
+
+message ClockInOutResponse {
+  ErrorInfo err = 1;
+  //which user clocked in or out (associated to tag by server)
+  UserInfo user = 2;
+  //what time the server tagged this event at
+  google.protobuf.Timestamp actual_time = 3;
+}
+
+message QueryFilter{
+  //time range over which to return responses (can leave blank to get "current" sessions)
+  TimeRange times_fiter = 1;
+  //can query individual users, or a whole org by a single user_info with blank username but org filled in
+  repeated UserInfo users_filter = 2;
+  //filter only on certain locations
+  repeated LocationInfo locations_filter = 3;
+}
+
+message QueryResponse {
+  ErrorInfo err = 1;
+  repeated UserSession sessions = 2;
+}
+
+message EventControl {
+  //command used to start and stop the stream
+  uint32 stream_command = 1;
+  //query for filtering users, orgs, etc
+  QueryFilter filter = 2;
+}
+
+message Event{
+  ErrorInfo err =1;
+  //which user this event is associated with
+  UserInfo user = 2;
+  //whether this is a tag in or tag out
+  bool in_out = 3;
+  //what time the event ocurred
+  google.protobuf.Timestamp event_time = 4;
+}
+
+message LocationResponse{
+  ErrorInfo err = 1;
+  LocationInfo loc = 2;
+}
+
+message ServerInfo{
+  string version = 1;
+  string proto_version = 2;
+}
+
+message empty {}
+
+service ClockInOutService
+{
+  //called whenever a frontend sees a user tag
+  rpc ClockInOut(ClockInOutRequest) returns (ClockInOutResponse);
+  
+  //called by display devices requesting information
+  rpc Query(QueryFilter) returns (QueryResponse);
+
+  //user management functions (auth will be controlled via out of band call credentials)
+  rpc RegisterUser(UserInfo) returns (ErrorInfo);
+  rpc DeleteUser(UserInfo) returns (ErrorInfo);
+  rpc ModifyUser(UserInfo) returns (ErrorInfo);
+
+  //location management functions
+  rpc RegisterLocation(LocationInfo) returns (LocationResponse);
+  rpc LocationKeepAlive(LocationInfo) returns (LocationResponse);
+  
+  //live streaming of events
+  rpc StreamEvents(stream EventControl) returns (stream Event);
+
+  //get information about server
+  rpc GetServerInfo(empty) returns (ServerInfo);
+  
+}
