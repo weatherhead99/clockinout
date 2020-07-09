@@ -1,0 +1,2 @@
+[build-system]
+requires = ["grpcio-tools >= 1.30.0"]

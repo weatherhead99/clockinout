@@ -29,8 +29,10 @@ message ErrorInfo {
 
 message UserInfo {
   string name = 1;
-  string org = 2;
-  TagInfo user_tag = 3;
+  //only used for admin sessions
+  string password = 2;
+  repeated string org = 4;
+  repeated TagInfo user_tags = 5;
 }
 
 message UserSession {
@@ -59,11 +61,11 @@ message ClockInOutResponse {
 }
 
 message QueryFilter{
-  //time range over which to return responses (can leave blank to get "current" sessions)
+  //time range over which to return responses (can leave blank to get "current" sessions, with no end time)
   TimeRange times_fiter = 1;
   //can query individual users, or a whole org by a single user_info with blank username but org filled in
   repeated UserInfo users_filter = 2;
-  //filter only on certain locations
+  //filter only on certain login locations
   repeated LocationInfo locations_filter = 3;
 }
 
@@ -99,6 +101,12 @@ message ServerInfo{
   string proto_version = 2;
 }
 
+message LoginResponse{
+  ErrorInfo err = 1;
+  bytes sessionkey = 2;
+}
+
+
 message empty {}
 
 service ClockInOutService
@@ -123,5 +131,8 @@ service ClockInOutService
 
   //get information about server
   rpc GetServerInfo(empty) returns (ServerInfo);
+
+  //admin login
+  rpc AdminLogin(UserInfo) returns (LoginResponse);
   
 }
