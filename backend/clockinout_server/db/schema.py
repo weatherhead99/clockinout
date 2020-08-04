@@ -70,8 +70,10 @@ class Tag(DBBase):
     DEFAULT_LOOKUP_KEY = "tagstr"
     __tablename__ = "tags"
     tag_id = Column(Integer, primary_key=True)
-    tagstr = Column(String, unique=True, nullable=False) #holds binary id stored on the tag
+    tagstr = Column(String, unique=True, nullable=False) #holds binary message stored on the tag
+    taguid = Column(String, unique=True, nullable=False) #holds tag uid
     user_id = Column(Integer, ForeignKey("users.user_id"))
+    provisioned = Column(DateTime)
 
 class User(DBBase):
     DEFAULT_LOOKUP_KEY="name"
@@ -82,7 +84,21 @@ class User(DBBase):
     orgs = relationship("Org", secondary=user_org_association_table,
                         back_populates="users")
     sessions = relationship("Session")
+    power_level = Column(Integer)
     hashed_pw = Column(String)
+    created = Column(DateTime)
+    modified = Column(DateTime)
+
+class Location(DBBase):
+    DEFAULT_LOOKUP_KEY = "name"
+    __tablename__ = "locations"
+    location_id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False)
+    created = Column(DateTime)
+    modified = Column(DateTime)
+    admin_user = Column(Integer, ForeignKey("users.user_id"), nullable=False)
+    last_seen = Column(DateTime)
+
 
 class Session(DBBase):
     __tablename__ = "sessions"

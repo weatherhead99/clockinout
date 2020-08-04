@@ -17,6 +17,7 @@ from ..user_management import UserManager
 from ..org_management import OrgManager
 
 PROG_DESCRIPTION = """ create a new database for clockinout_server"""
+ADMIN_POWER_LEVEL = 10
 
 def main():
     ap = argparse.ArgumentParser(description=PROG_DESCRIPTION)
@@ -70,7 +71,6 @@ def main():
         
     toplevel_org = om.create_new_org(session, toplevel_org_name, admin_user, None)
     session.commit()
-
 
 
 if __name__ == "__main__":

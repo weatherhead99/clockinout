@@ -20,10 +20,11 @@ setup(
                           "password_strength >= 0.0.3.post2",
                           "pynacl >= 1.4.0",
                           "clockinout_protocols >= %s" % VERSION,
-                          "aiologger >= 0.5"
-                          "importlib_metadata; python_version < 3.8",
+                          "aiologger >= 0.5",
+                          'importlib_metadata ~= 1.5.0; python_version<"3.8"',
                           "grpcio-reflection >= 1.30.0",
-                          "grpcio >= 1.30.0"],
+                          "grpcio >= 1.30.0",
+                          "dynaconf ~= 3.0.0"],
       
       python_requires = ">=3.7",
       

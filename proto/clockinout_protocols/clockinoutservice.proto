@@ -11,13 +11,28 @@ message TimeRange{
 }
 
 message TagInfo{
-  bytes tag_uid = 1;
+  enum tag_info_type {
+    LEGACY_UID_ONLY = 0;
+    NFC_CHALLRESPONSE = 1;
+    PHONE_SNEP = 2;
+  }
+  tag_info_type type = 1;
+  bytes tag_uid = 2;
+  bytes tag_message =3;
+  bytes tag_signature = 4;
 }
 
 message LocationInfo{
-  string name = 1;
-  bytes uid = 2;
-  bytes sessionkey = 3;
+  int32 id = 1;
+  string name = 2;
+  bytes uid = 3;
+}
+
+message OrgInfo {
+  int32 id = 1;
+  string name = 2;
+  OrgInfo parent = 2;
+  bool membership_enabled = 3;
 }
 
 message ErrorInfo {
@@ -28,10 +43,11 @@ message ErrorInfo {
 }
 
 message UserInfo {
-  string name = 1;
+  int32 id = 1;
+  string name = 2;
   //only used for admin sessions
-  string password = 2;
-  repeated string org = 4;
+  string password = 3;
+  repeated OrgInfo org = 4;
   repeated TagInfo user_tags = 5;
 }
 
@@ -63,10 +79,12 @@ message ClockInOutResponse {
 message QueryFilter{
   //time range over which to return responses (can leave blank to get "current" sessions, with no end time)
   TimeRange times_fiter = 1;
-  //can query individual users, or a whole org by a single user_info with blank username but org filled in
+  //can query individual users
   repeated UserInfo users_filter = 2;
   //filter only on certain login locations
   repeated LocationInfo locations_filter = 3;
+  //filter on org
+  repeated OrgInfo org_filter = 4;
 }
 
 message QueryResponse {
@@ -99,6 +117,8 @@ message LocationResponse{
 message ServerInfo{
   string version = 1;
   string proto_version = 2;
+  bytes publickey = 3;
+  bool legacy_provision_enabled = 4;
 }
 
 message LoginResponse{
@@ -106,7 +126,25 @@ message LoginResponse{
   bytes sessionkey = 2;
 }
 
+message OrgResponse{
+  ErrorInfo err = 1;
+  OrgInfo org = 2;
+}
 
+message UserResponse{
+  ErrorInfo err =1;
+  UserInfo user = 2;
+}
+
+message TagProvisionMessage{
+  //user to associate with the new tag
+  UserInfo user = 1;
+  //taginfo pre-filled with tag UID
+  TagInfo tag = 2;
+  //location info pre-filled
+  LocationInfo location = 3;
+}
+  
 message empty {}
 
 service ClockInOutService
@@ -118,13 +156,21 @@ service ClockInOutService
   rpc Query(QueryFilter) returns (QueryResponse);
 
   //user management functions (auth will be controlled via out of band call credentials)
-  rpc RegisterUser(UserInfo) returns (ErrorInfo);
-  rpc DeleteUser(UserInfo) returns (ErrorInfo);
-  rpc ModifyUser(UserInfo) returns (ErrorInfo);
+  rpc RegisterUser(UserInfo) returns (UserResponse);
+  rpc DeleteUser(UserInfo) returns (UserResponse);
+  rpc ModifyUser(UserInfo) returns (UserResponse);
+
+  //used to provision new tag via any method other than legacy (UID only)
+  rpc ProvisionTag(TagProvisionMessage) returns (TagInfo);
 
   //location management functions
   rpc RegisterLocation(LocationInfo) returns (LocationResponse);
   rpc LocationKeepAlive(LocationInfo) returns (LocationResponse);
+
+  //org management functions
+  rpc RegisterOrg(OrgInfo) returns (OrgResponse);
+  rpc ModifyOrg(OrgInfo) returns (OrgResponse);
+  rpc DeleteOrg(OrgInfo) returns (OrgResponse);
   
   //live streaming of events
   rpc StreamEvents(stream EventControl) returns (stream Event);
