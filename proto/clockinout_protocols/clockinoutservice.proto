@@ -2,6 +2,14 @@ syntax = "proto3";
 
 package clockinout;
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/descriptor.proto";
+
+extend google.protobuf.FileOptions {
+   string clockinout_proto_version = 65432;
+}
+
+option (clockinout_proto_version) = "1.0";
+
 
 // general information messages 
 
@@ -12,9 +20,10 @@ message TimeRange{
 
 message TagInfo{
   enum tag_info_type {
-    LEGACY_UID_ONLY = 0;
-    NFC_CHALLRESPONSE = 1;
-    PHONE_SNEP = 2;
+    NFC_UID_ONLY = 0;
+    NFC_NDEF = 1;
+    WEB_TAG = 2;
+    MAC_ADDRESS = 3;
   }
   tag_info_type type = 1;
   bytes tag_uid = 2;
@@ -31,8 +40,8 @@ message LocationInfo{
 message OrgInfo {
   int32 id = 1;
   string name = 2;
-  OrgInfo parent = 2;
-  bool membership_enabled = 3;
+  OrgInfo parent = 3;
+  bool membership_enabled = 4;
 }
 
 message ErrorInfo {
@@ -87,9 +96,24 @@ message QueryFilter{
   repeated OrgInfo org_filter = 4;
 }
 
-message QueryResponse {
+message SessionQueryResponse {
   ErrorInfo err = 1;
   repeated UserSession sessions = 2;
+}
+
+message UserQueryResponse {
+  ErrorInfo err = 1;
+  repeated UserInfo users = 2;
+}
+
+message OrgQueryResponse {
+  ErrorInfo err = 1;
+  repeated OrgInfo orgs =3;
+}
+
+message LocationQueryResponse{
+  ErrorInfo err = 1;
+  repeated LocationInfo = 2;
 }
 
 message EventControl {
@@ -117,7 +141,7 @@ message LocationResponse{
 message ServerInfo{
   string version = 1;
   string proto_version = 2;
-  bytes publickey = 3;
+  bytes tag_provision_publickey = 3;
   bool legacy_provision_enabled = 4;
 }
 
@@ -144,28 +168,42 @@ message TagProvisionMessage{
   //location info pre-filled
   LocationInfo location = 3;
 }
-  
+
+message TagProvisionResponse {
+  ErrorInfo err = 1;
+  TagInfo tag =2;
+}
+
+
 message empty {}
 
 service ClockInOutService
 {
   //called whenever a frontend sees a user tag
-  rpc ClockInOut(ClockInOutRequest) returns (ClockInOutResponse);
+  rpc ClockInOutTag(ClockInOutRequest) returns (ClockInOutResponse);
+
+  //called to clock in or out via other methods (e.g. QR code, MAC address)
+  rpc ClockInOutManual(ClockInOutRequest) returns (ClockInOutResponse);
   
   //called by display devices requesting information
-  rpc Query(QueryFilter) returns (QueryResponse);
+  rpc QuerySessions(QueryFilter) returns (SessionQueryResponse);
+  rpc QueryUsers(QueryFilter) returns (UserQueryResponse);
+  rpc QueryOrgs(QueryFilter) returns (OrgQueryResponse);
+  rpc QueryLocations(QueryFilter) returns (LocationQueryResponse);
 
   //user management functions (auth will be controlled via out of band call credentials)
   rpc RegisterUser(UserInfo) returns (UserResponse);
   rpc DeleteUser(UserInfo) returns (UserResponse);
   rpc ModifyUser(UserInfo) returns (UserResponse);
 
-  //used to provision new tag via any method other than legacy (UID only)
-  rpc ProvisionTag(TagProvisionMessage) returns (TagInfo);
+  //used to provision new tag (UID only)
+  rpc ProvisionTag(TagProvisionMessage) returns (TagProvisionResponse);
+  rpc DeProvisionTag(TagInfo) returns (TagProvisionResponse);
 
   //location management functions
   rpc RegisterLocation(LocationInfo) returns (LocationResponse);
   rpc LocationKeepAlive(LocationInfo) returns (LocationResponse);
+  rpc DeleteLocation(LocationInfo) returns (LocationResponse);
 
   //org management functions
   rpc RegisterOrg(OrgInfo) returns (OrgResponse);
@@ -180,5 +218,6 @@ service ClockInOutService
 
   //admin login
   rpc AdminLogin(UserInfo) returns (LoginResponse);
+  
   
 }

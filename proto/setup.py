@@ -3,7 +3,6 @@ from setuptools.command.build_py import build_py
 from grpc_tools.command import BuildPackageProtos
 
 
-
 class CustomBuild(build_py):
     def run(self):
         self.run_command("build_package_protos")

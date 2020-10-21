@@ -31,3 +31,20 @@ class UserManager:
         new_user = User(name=name, hashed_pw=hashed_pw, power_level=power_level, created=datetime.now())
         dbsession.add(new_user)
         return new_user
+    
+    def retrieve_user(self, dbsession: Session, name: Optional[str] = None,
+                      user_id: Optional[int] = None):
+        if name is None and user_id is None:
+            raise KeyError("must supply either a user_id or name")
+        elif name is not None and user_id is not None:
+            raise KeyError("must supply either a user_id or name, not both")
+
+        if name is not None:
+            user = dbsession.query(User).filter_by(name=name).one_or_none()
+
+        elif user_id is not None:
+            user = dbsession.query(User).filter_by(user_id=user_id).one_or_none()
+
+        return user
+
+

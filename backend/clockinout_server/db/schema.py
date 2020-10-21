@@ -73,6 +73,7 @@ class Tag(DBBase):
     tagstr = Column(String, unique=True, nullable=False) #holds binary message stored on the tag
     taguid = Column(String, unique=True, nullable=False) #holds tag uid
     user_id = Column(Integer, ForeignKey("users.user_id"))
+    tag_type = Column(Integer)
     provisioned = Column(DateTime)
 
 class User(DBBase):
