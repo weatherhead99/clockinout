@@ -58,12 +58,12 @@ class UserManager:
         users = []
         if ids:
             for i in ids:
-                uq = dbsession.query(User).filter_by(User.id==i).one_or_none()
+                uq = dbsession.query(User).filter(User.user_id==i).one_or_none()
                 if uq is not None:
                     users.append(uq)
         if names:
             for nm in names:
-                uq = dbsession.query(User).filter_by(User.name==nm).one_or_none()
+                uq = dbsession.query(User).filter(User.name==nm).one_or_none()
                 if uq is not None:
                     users.append(uq)
         return users

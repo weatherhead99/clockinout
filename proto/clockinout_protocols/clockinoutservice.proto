@@ -50,6 +50,7 @@ message ErrorInfo {
   string error_msg = 2;
   //could do this as an enum if wanted, but imposes limitations
   uint32 error_code = 3;
+  string error_type = 4;
 }
 
 message UserInfo {
@@ -57,8 +58,11 @@ message UserInfo {
   string name = 2;
   //only used for admin sessions
   string password = 3;
-  repeated OrgInfo org = 4;
-  repeated TagInfo user_tags = 5;
+  int32 power_level = 4;
+  repeated OrgInfo org = 5;
+  repeated TagInfo user_tags = 6;
+  google.protobuf.Timestamp created = 7;
+  google.protobuf.Timestamp modified =8;
 }
 
 message UserSession {

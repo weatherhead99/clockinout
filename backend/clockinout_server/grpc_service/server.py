@@ -15,19 +15,21 @@ from grpc_reflection.v1alpha import reflection
 import functools
 from clockinout_protocols.clockinoutservice_pb2_grpc import ClockInOutServiceServicer, add_ClockInOutServiceServicer_to_server
 from clockinout_protocols import clockinoutservice_pb2
+from clockinout_protocols.errors import InvalidRequest, ProtoMessageWithErrorInformation
 from concurrent.futures import ThreadPoolExecutor
-from clockinout_protocols.clockinoutservice_pb2 import DESCRIPTOR as cio_DESCRIPTOR
+from clockinout_protocols import PROTO_SCHEMA_VERSION
 import logging
 import clockinout_server
 from ..login_session_management  import LoginSessionManager
 from ..user_management import UserManager
 from config_path import ConfigPath
-from .proto_validation import require_fields, forbid_fields
+from .proto_validation import require_fields, forbid_fields, is_proto_field_set, optional_proto_field, require_oneof
+from clockinout_protocols.errors import fill_proto_errors
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from contextlib import contextmanager
-from typing import Protocol
+from typing import Optional
 
 class Server:
     def __init__(self, db_conn_str: str, servestr: int, event_loop, 
@@ -70,40 +72,15 @@ class Server:
         finally:
             session.close()
 
+    def get_response_builder(self, responsetp: ProtoMessageWithErrorInformation,
+                             reraise_exceptions: bool=False,
+                             **kwargs):
+        return fill_proto_errors(responsetp, self.logger, reraise_exceptions,
+                                **kwargs)
+
     def  run(self):
         self.event_loop.create_task(self.aio_run())
         self.event_loop.run_forever()
-
-
-class ResponseWithErrorCode(Protocol):
-    err: clockinoutservice_pb2.ErrorInfo
-
-
-@contextmanager
-def response_builder(responsetp: ResponseWithErrorCode, **kwargs):
-    resp = responsetp(**kwargs)
-    try:
-        yield resp
-    except Exception as e:
-        resp.err.has_error = True
-        if hasattr(e, "code"):
-            resp.err.error_code = e.code
-        resp.err.error_msg = str(e)
-        raise e
-
-
-def get_proto_version(proto_descriptor) -> str:
-    if not proto_descriptor.has_options:
-        raise KeyError("proto descriptor has no options")
-    opts = proto_descriptor.GetOptions()
-    proto_version = None
-    for flddesc, val in opts.ListFields():
-        if flddesc.camelcase_name == "clockinoutProtoVersion":
-            proto_version = val
-            break
-    if proto_version is not None:
-        return proto_version
-    raise ValueError("proto descriptor does not contain version number")
 
 class Servicer(ClockInOutServiceServicer):
     def __init__(self, server: Server):
@@ -111,18 +88,18 @@ class Servicer(ClockInOutServiceServicer):
         self.loginman = LoginSessionManager()
         self.server = server
         self.logger = self.server.logger
+        self.rbuilder = self.server.get_response_builder
 
     async def GetServerInfo(self, request: clockinoutservice_pb2.empty, context):
         await self.logger.debug("GetServerInfo called")
         server_version = clockinout_server.__version__
-        pver = get_proto_version(cio_DESCRIPTOR)
         ret = clockinoutservice_pb2.ServerInfo(version=server_version, 
-                                               proto_version=pver)
+                                               proto_version=PROTO_SCHEMA_VERSION)
         return ret
 
     async def QueryUsers(self, request: clockinoutservice_pb2.QueryFilter, context):
         await self.logger.debug("QueryUsers called")
-        with response_builder(clockinoutservice_pb2.UserQueryResponse) as resp:
+        with self.rbuilder(clockinoutservice_pb2.UserQueryResponse) as resp:
             forbid_fields(request, ["times_filter", "locations_filter", "org_filter"])
             user_id_queries = []
             user_name_queries = []
@@ -138,19 +115,53 @@ class Servicer(ClockInOutServiceServicer):
                     else:
                         users = self.userman.query_users(sess, user_name_queries, user_id_queries)
                 return users
-            
             users = await self.server.run_blocking_function(dbfun)
         
             for dbuser in users:
                 resp.users.append(dbuser.to_proto())
         return resp
 
+    async def QueryOrgs(self, request: clockinoutservice_pb2.QueryFilter, context):
+        await self.logger.debug("QueryOrgs called")
+        with self.rbuilder(clockinoutservice_pb2.OrgQueryResponse) as resp:
+            forbid_fields(request, ["times_filter", "locations_filter"])
+            require_oneof(request, ["users_filter", "org_filter"])
+            
+            def dbfun():
+                with self.server.get_db_session() as sess:
+                    found_orgs = []
+                    for user in request.users_filter:
+                        rname = optional_proto_field(user, "name")
+                        rid = optional_proto_field(user, "id")
+                        user = self.userman.retrieve_user(sess, rname, rid)
+                        if user is not None:
+                            found_orgs.extend(user.orgs)
+
+
+
+    async def RegisterUser(self, request: clockinoutservice_pb2.UserInfo, context):
+        await self.logger.debug("RegisterUser called")
+        with self.rbuilder(clockinoutservice_pb2.UserInfo) as resp:
+            forbid_fields(request, "id")
+            require_fields(request, "name")
+            require_fields(request, "org")
+
     async def ProvisionTag(self, request: clockinoutservice_pb2.TagProvisionMessage, context):
         #TODO: check user permissions to provision tags!
         self.logger.debug("ProvisionTag called")
-        with response_builder(type(request)) as resp:
-            if not resp.HasField("user"):
-                raise KeyError("required field user is missing")
+        with self.rbuilder(clockinoutservice_pb2.TagProvisionResponse) as resp:
+            require_fields(request, ["user"])
+            #lookup user
+            def dbfun():
+                with self.server.get_db_session() as sess:
+                    rname = optional_proto_field(request.user, "name")
+                    rid = optional_proto_field(request.user, "id")
+                    user = self.userman.retrieve_user(sess, rname,rid)
+                    if user is None:
+                        raise ValueError("no such user found")
+            await self.server.run_blocking_function(dbfun)
+            
+            
         return resp
 
 def main():
