@@ -8,18 +8,34 @@ Created on Thu Jul  9 02:54:03 2020
 
 from sqlalchemy import Column, Integer, String, ForeignKey, Table, DateTime, Boolean
 from sqlalchemy.ext.declarative import declarative_base, DeclarativeMeta
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, class_mapper, ColumnProperty
 from sqlalchemy.orm.session import Session
-from typing import TypeVar, Union, Optional, Type
+from typing import TypeVar, Union, Optional, Type, Iterable
+from clockinout_protocols.clockinoutservice_pb2 import UserInfo, OrgInfo, LocationInfo, TagInfo, UserSession
 
-DBBase = declarative_base()
+_PROTO_TYPES_TO_DB_MAPPING = {}
+_PROTO_NAMES_TO_DB_MAPPING = {}
+class proto_db_association_meta(DeclarativeMeta):
+    def __init__(cls, name, bases, d):
+        super().__init__(name, bases, d)
+        if hasattr(cls, "PROTO_TYPE_MAPPING"):
+            proto_cls = getattr(cls, "PROTO_TYPE_MAPPING")
+            _PROTO_TYPES_TO_DB_MAPPING[proto_cls] = cls
+            typename = proto_cls.DESCRIPTOR.name
+            _PROTO_NAMES_TO_DB_MAPPING[typename] = cls
+            
+            if not hasattr(cls, "to_proto"):
+                def to_proto(self):
+                    return map_db_to_proto_default(self, proto_cls)
+                setattr(cls, "to_proto", to_proto)
+
+
+DBBase = declarative_base(metaclass=proto_db_association_meta)
 S = TypeVar("S", bound=DBBase)
-
+P = TypeVar("P")
 
 #TODO: wrapper that validates and requires DEFAULT_LOOKUP_KEY
 #OR: do it via mypy
-
-
 def lookup_or_pass(session: Session, val: Union[S,str], targettp: Type[S]) -> Optional[S]:
     """ convenience function to query unique values from the database
         
@@ -48,6 +64,40 @@ def lookup_or_pass(session: Session, val: Union[S,str], targettp: Type[S]) -> Op
         return next(iter(q))
 
 
+def map_db_to_proto_default(dbobj: S, proto_type: Type[P]) -> P:
+    omit_cols = [] if not hasattr(dbobj, "TO_PROTO_OMIT_COLS") else dbobj.TO_PROTO_OMIT_COLS
+    custom_mapping = {} if not hasattr(dbobj, "PROTO_CUSTOM_MAPPING") else dbobj.PROTO_CUSTOM_MAPPING
+    cm = class_mapper(type(dbobj))
+    dbcolkeys = []
+    for prop in cm.iterate_properties:
+        if isinstance(prop, ColumnProperty):
+            if prop.key not in omit_cols:
+                dbcolkeys.append(prop.key)
+
+    proto_field_names = proto_type.DESCRIPTOR.fields_by_name
+    
+    construct_d = {}
+    for fieldname, desc in proto_field_names.items():
+        if fieldname in dbcolkeys:
+            source_field = getattr(dbobj, fieldname)
+        elif fieldname in custom_mapping:
+            source_field = getattr(dbobj, custom_mapping[fieldname])
+        else:
+            source_field = None
+        
+        #fill in trivial types
+        if source_field is not None:
+            if desc.message_type is None:
+                construct_d[fieldname] = source_field
+            elif desc.message_type.name in _PROTO_NAMES_TO_DB_MAPPING:
+                construct_d[fieldname] = getattr(dbobj,fieldname).to_proto()
+
+    out = proto_type(**construct_d)
+    return out
+
+
+
+
 user_org_association_table = Table("user_org_association", DBBase.metadata,
                                    Column("user_id", Integer, ForeignKey("users.user_id")),
                                    Column("org_id", Integer, ForeignKey("orgs.org_id")))
@@ -55,6 +105,8 @@ user_org_association_table = Table("user_org_association", DBBase.metadata,
 
 class Org(DBBase):
     DEFAULT_LOOKUP_KEY = "name"
+    PROTO_TYPE_MAPPING = OrgInfo
+    PROTO_CUSTOM_MAPPING = {"org_id" : "id"}
     __tablename__ = "orgs"
     org_id = Column(Integer, primary_key=True)
     name = Column(String, unique=True, nullable=False)
@@ -66,8 +118,10 @@ class Org(DBBase):
     parent_org = Column(Integer)
     membership_enabled = Column(Boolean)
 
+
 class Tag(DBBase):
     DEFAULT_LOOKUP_KEY = "tagstr"
+    PROTO_TYPE_MAPPING = TagInfo
     __tablename__ = "tags"
     tag_id = Column(Integer, primary_key=True)
     tagstr = Column(String, unique=True, nullable=False) #holds binary message stored on the tag
@@ -78,6 +132,8 @@ class Tag(DBBase):
 
 class User(DBBase):
     DEFAULT_LOOKUP_KEY="name"
+    PROTO_TYPE_MAPPING = UserInfo
+    PROTO_CUSTOM_MAPPING = {"id" : "user_id"}
     __tablename__ = "users"
     user_id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
@@ -92,6 +148,7 @@ class User(DBBase):
 
 class Location(DBBase):
     DEFAULT_LOOKUP_KEY = "name"
+    PROTO_TYPE_MAPPING = LocationInfo
     __tablename__ = "locations"
     location_id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
@@ -103,6 +160,7 @@ class Location(DBBase):
 
 class Session(DBBase):
     __tablename__ = "sessions"
+    PROTO_TYPE_MAPPING = UserSession
     session_id = Column(Integer, primary_key=True)
     time_start = Column(DateTime)
     time_end = Column(DateTime)

@@ -16,13 +16,17 @@ import functools
 from clockinout_protocols.clockinoutservice_pb2_grpc import ClockInOutServiceServicer, add_ClockInOutServiceServicer_to_server
 from clockinout_protocols import clockinoutservice_pb2
 from concurrent.futures import ThreadPoolExecutor
-import clockinout_server
 from clockinout_protocols.clockinoutservice_pb2 import DESCRIPTOR as cio_DESCRIPTOR
 import logging
+import clockinout_server
 from clockinout_server.login_session_management  import LoginSessionManager
 from clockinout_server.user_management import UserManager
 from config_path import ConfigPath
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from contextlib import contextmanager
+from typing import Protocol
 
 class Server:
     def __init__(self, db_conn_str: str, servestr: int, event_loop, 
@@ -37,8 +41,9 @@ class Server:
                           reflection.SERVICE_NAME}
         reflection.enable_server_reflection(service_names, self._server)
         self._threadexecutor = ThreadPoolExecutor(max_thread_workers, "clockinout_worker_")
+        self._connect_db(db_conn_str)
 
-    async def run_blocking_function(self, fun, *args, **kwargs):
+    def run_blocking_function(self, fun, *args, **kwargs):
         combined_call = functools.partial(fun, *args, **kwargs)
         return self.event_loop.run_in_executor(self._threadexecutor,combined_call)
 
@@ -48,9 +53,42 @@ class Server:
         await self.logger.info("async server started")
         await self._server.wait_for_termination()
 
+    def _connect_db(self, db_conn_str: str):
+        self.engine = create_engine(db_conn_str)
+        self.sessionmaker = sessionmaker(bind=self.engine)
+
+    @contextmanager
+    def get_db_session(self, *args, **kwargs):
+        session = self.sessionmaker(*args, **kwargs)
+        try:
+            yield session
+            session.commit()
+        except:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
     def  run(self):
         self.event_loop.create_task(self.aio_run())
         self.event_loop.run_forever()
+
+
+class ResponseWithErrorCode(Protocol):
+    err: clockinoutservice_pb2.ErrorInfo
+
+
+@contextmanager
+def response_builder(responsetp: ResponseWithErrorCode, **kwargs):
+    resp = responsetp(**kwargs)
+    try:
+        yield resp
+    except Exception as e:
+        resp.err.has_error = True
+        if hasattr(e, "code"):
+            resp.err.error_code = e.code
+        resp.err.error_msg = str(e)
+        raise e
 
 
 def get_proto_version(proto_descriptor) -> str:
@@ -72,7 +110,7 @@ class Servicer(ClockInOutServiceServicer):
         self.loginman = LoginSessionManager()
         self.server = server
 
-    async def GetServerInfo(self, request, context):
+    async def GetServerInfo(self, request: clockinoutservice_pb2.empty, context):
         print("GetServerInfo")
         server_version = clockinout_server.__version__
         pver = get_proto_version(cio_DESCRIPTOR)
@@ -80,15 +118,43 @@ class Servicer(ClockInOutServiceServicer):
                                                proto_version=pver)
         return ret
 
-
-
+    async def QueryUsers(self, request: clockinoutservice_pb2.QueryFilter, context):
+        print("QueryUsers")
+        with response_builder(clockinoutservice_pb2.UserQueryResponse) as resp:
+            if request.HasField("times_filter"):
+                raise NotImplemented("filter field times-filter not supported yet in user query")
+            for field_name in ["locations_filter", "org_filter"]:
+                if len(getattr(request, field_name)) > 0:
+                    raise NotImplementedError("filter field %d not supported yet in user query" % field_name)
+            
+            user_id_queries = []
+            user_name_queries = []
+            for userquery in request.users_filter:
+                if userquery.id != 0:
+                    user_id_queries.append(userquery.id)
+                elif len(userquery.name) > 0:
+                    user_name_queries.append(userquery.name)
+            
+            def dbfun():
+                with self.server.get_db_session(expire_on_commit=False) as sess:
+                    if len(user_id_queries) == 0 and len(user_name_queries) == 0:
+                        users = self.userman.query_users(sess, None, None)
+                    else:
+                        users = self.userman.query_users(sess, user_name_queries, user_id_queries)
+                return users
+            
+            users = await self.server.run_blocking_function(dbfun)
+        
+            for dbuser in users:
+                resp.users.append(dbuser.to_proto())
+        return resp
 
 if __name__ == "__main__":
     cpath = ConfigPath("EOF","clockinout",".ini")
     cfolder = cpath.readFolderPath()
     cfile = cfolder / "server_config.ini"
     cfg = configparser.ConfigParser()
-    
+
     if not os.path.exists(cfile):
         raise RuntimeError("config file path %s does not exist" % cfile)
     with open(cfile,"r") as f:

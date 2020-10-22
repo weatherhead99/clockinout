@@ -87,7 +87,7 @@ message ClockInOutResponse {
 
 message QueryFilter{
   //time range over which to return responses (can leave blank to get "current" sessions, with no end time)
-  TimeRange times_fiter = 1;
+  TimeRange times_filter = 1;
   //can query individual users
   repeated UserInfo users_filter = 2;
   //filter only on certain login locations
@@ -113,7 +113,7 @@ message OrgQueryResponse {
 
 message LocationQueryResponse{
   ErrorInfo err = 1;
-  repeated LocationInfo = 2;
+  repeated LocationInfo locations = 2;
 }
 
 message EventControl {

@@ -35,12 +35,12 @@ def main():
     ap.add_argument("--config_file", type=str)
     ap.add_argument("--signing_key", type=str)
     args = ap.parse_args()
-    
+
     if args.config_file is None:
         cpath = ConfigPath("EOF","clockinout",".ini")
         conf_folder = cpath.saveFolderPath(mkdir=True)
-        print("no config file supplied, using default, %s" % conf_folder)
         conf_file = conf_folder / "server_config.ini"
+        print("no config file supplied, using default, %s" % conf_file)
     else:
         conf_file = args.config_file
     
@@ -51,14 +51,14 @@ def main():
     if args.signing_key is None:
         print("no signing key provided, generating a new one...")
         skey = SigningKey.generate()
-        skey_encoded = skey.encode(Base64Encoder)
+        skey_encoded = skey.encode(Base64Encoder).decode()
     else:
         try:
-            skey_encoded = SigningKey(args.signing_key, Base64Encoder)
+            skey = SigningKey(args.signing_key, Base64Encoder)
+            skey_encoded = args.signing_key
         except Exception as e:
             print("failed to decode provided signing key, exiting...")
             sys.exit(1)
-
 
     cfg = configparser.ConfigParser()
     cfg["db"] = {}

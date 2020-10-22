@@ -8,7 +8,7 @@ Created on Thu Jul  9 03:45:17 2020
 
 from .db.schema import User
 from sqlalchemy.orm.session import Session
-from typing import Callable, Any, Union, Iterable, Optional
+from typing import Callable, Any, Union, Iterable, Optional, List
 import nacl.pwhash
 from password_strength import PasswordPolicy
 from datetime import datetime
@@ -47,4 +47,21 @@ class UserManager:
 
         return user
 
+    def query_users(self, dbsession: Session, names: Optional[Iterable[str]]=None, 
+                    ids: Optional[Iterable[str]]=None) -> List[User]:
+        if not any([names, ids]):
+            allusers = dbsession.query(User).order_by(User.name).all()
+            return allusers
+        users = []
+        if ids:
+            for i in ids:
+                uq = dbsession.query(User).filter_by(User.id==i).one_or_none()
+                if uq is not None:
+                    users.append(uq)
+        if names:
+            for nm in names:
+                uq = dbsession.query(User).filter_by(User.name==nm).one_or_none()
+                if uq is not None:
+                    users.append(uq)
+        return users
 
