@@ -29,6 +29,7 @@ setup(
       python_requires = ">=3.7",
       
       entry_points = {
-          "console_scripts" : ["clockinout_create_db=clockinout_server.db.create_db:main"]}
+          "console_scripts" : ["clockinout_create_db=clockinout_server.db.create_db:main",
+                               "clockinout_server=clockinout_server.grpc_service.server:main"]}
       
       )

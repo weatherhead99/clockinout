@@ -110,7 +110,7 @@ def main():
     else:
         toplevel_org_name = args.toplevel_org
         
-    om.create_new_org(session, toplevel_org_name, admin_user, None)
+    om.create_new_org(session, toplevel_org_name, admin_user, None, False)
     session.commit()
 
 

@@ -9,8 +9,7 @@ from enum import Enum
 from typing import Iterable, List
 
 class UserPermissions(Enum):
-    SUPER_ADMIN = 0
-    TEST_PERMISSION = 6
+    SUPER_ADMIN = 0 #can do everything
 
 def permissions_to_int(perms: Iterable[UserPermissions]) -> int:
     out: int = 0

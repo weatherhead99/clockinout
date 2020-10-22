@@ -19,9 +19,10 @@ from concurrent.futures import ThreadPoolExecutor
 from clockinout_protocols.clockinoutservice_pb2 import DESCRIPTOR as cio_DESCRIPTOR
 import logging
 import clockinout_server
-from clockinout_server.login_session_management  import LoginSessionManager
-from clockinout_server.user_management import UserManager
+from ..login_session_management  import LoginSessionManager
+from ..user_management import UserManager
 from config_path import ConfigPath
+from .proto_validation import require_fields, forbid_fields
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -109,9 +110,10 @@ class Servicer(ClockInOutServiceServicer):
         self.userman = UserManager()
         self.loginman = LoginSessionManager()
         self.server = server
+        self.logger = self.server.logger
 
     async def GetServerInfo(self, request: clockinoutservice_pb2.empty, context):
-        print("GetServerInfo")
+        await self.logger.debug("GetServerInfo called")
         server_version = clockinout_server.__version__
         pver = get_proto_version(cio_DESCRIPTOR)
         ret = clockinoutservice_pb2.ServerInfo(version=server_version, 
@@ -119,13 +121,9 @@ class Servicer(ClockInOutServiceServicer):
         return ret
 
     async def QueryUsers(self, request: clockinoutservice_pb2.QueryFilter, context):
-        print("QueryUsers")
+        await self.logger.debug("QueryUsers called")
         with response_builder(clockinoutservice_pb2.UserQueryResponse) as resp:
-            if request.HasField("times_filter"):
-                raise NotImplemented("filter field times-filter not supported yet in user query")
-            for field_name in ["locations_filter", "org_filter"]:
-                if len(getattr(request, field_name)) > 0:
-                    raise NotImplementedError("filter field %d not supported yet in user query" % field_name)
+            forbid_fields(request, ["times_filter", "locations_filter", "org_filter"])
             user_id_queries = []
             user_name_queries = []
             for userquery in request.users_filter:
@@ -147,7 +145,15 @@ class Servicer(ClockInOutServiceServicer):
                 resp.users.append(dbuser.to_proto())
         return resp
 
-if __name__ == "__main__":
+    async def ProvisionTag(self, request: clockinoutservice_pb2.TagProvisionMessage, context):
+        #TODO: check user permissions to provision tags!
+        self.logger.debug("ProvisionTag called")
+        with response_builder(type(request)) as resp:
+            if not resp.HasField("user"):
+                raise KeyError("required field user is missing")
+        return resp
+
+def main():
     cpath = ConfigPath("EOF","clockinout",".ini")
     cfolder = cpath.readFolderPath()
     cfile = cfolder / "server_config.ini"
@@ -158,7 +164,10 @@ if __name__ == "__main__":
     with open(cfile,"r") as f:
         cfg.read_file(f)
 
-    logging.basicConfig(level= logging.DEBUG)
+    #aiologger.basicConfig(level=logging.DEBUG)
     loop = asyncio.get_event_loop()
     apiserver = Server(cfg["db"]["connstr"], "[::]:50051", loop)
     apiserver.run()
+
+if __name__ == "__main__":
+    main()

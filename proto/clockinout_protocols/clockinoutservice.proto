@@ -41,7 +41,8 @@ message OrgInfo {
   int32 id = 1;
   string name = 2;
   OrgInfo parent = 3;
-  bool membership_enabled = 4;
+  UserInfo admin_user = 4;
+  bool membership_enabled = 5;
 }
 
 message ErrorInfo {

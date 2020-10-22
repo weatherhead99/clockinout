@@ -87,16 +87,15 @@ def map_db_to_proto_default(dbobj: S, proto_type: Type[P]) -> P:
     custom_mapping = getattr(dbobj, "PROTO_CUSTOM_MAPPING", {})
     dbcolkeys = get_db_column_keys(dbobj, omit_cols, custom_mapping)
     proto_field_names = proto_type.DESCRIPTOR.fields_by_name
-    
+
     construct_d = {}
     for fieldname, desc in proto_field_names.items():
         if fieldname in dbcolkeys:
             source_field = getattr(dbobj, fieldname)
-        elif fieldname in custom_mapping:
+        elif fieldname in custom_mapping and custom_mapping[fieldname] not in omit_cols:
             source_field = getattr(dbobj, custom_mapping[fieldname])
         else:
             source_field = None
-        
         #fill in trivial types
         if source_field is not None:
             if desc.message_type is None:
@@ -171,6 +170,7 @@ class User(DBBase):
     DEFAULT_LOOKUP_KEY="name"
     PROTO_TYPE_MAPPING = UserInfo
     PROTO_CUSTOM_MAPPING = {"id" : "user_id", "password" : "hashed_pw"}
+    TO_PROTO_OMIT_COLS = ["hashed_pw"]
     __tablename__ = "users"
     user_id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
