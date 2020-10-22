@@ -18,6 +18,7 @@ from config_path import ConfigPath
 from .schema import DBBase, User
 from ..user_management import UserManager
 from ..org_management import OrgManager
+from .power_level_flags import permissions_to_int, UserPermissions
 from nacl.signing import SigningKey
 from nacl.encoding import Base64Encoder
 import base64
@@ -95,7 +96,9 @@ def main():
     session = sessionf()
     
     uman = UserManager()
-    admin_user = uman.create_new_user(session, admin_username, unhashed_pw=admin_pass)
+    plevel = permissions_to_int([UserPermissions.SUPER_ADMIN])
+    admin_user = uman.create_new_user(session, admin_username, 
+                                      unhashed_pw=admin_pass, power_level=plevel)
     session.commit()
 
     om = OrgManager()

@@ -33,17 +33,20 @@ class UserManager:
         return new_user
     
     def retrieve_user(self, dbsession: Session, name: Optional[str] = None,
-                      user_id: Optional[int] = None):
+                      user_id: Optional[int] = None) -> Optional[User]:
         if name is None and user_id is None:
             raise KeyError("must supply either a user_id or name")
         elif name is not None and user_id is not None:
             raise KeyError("must supply either a user_id or name, not both")
 
-        if name is not None:
-            user = dbsession.query(User).filter_by(name=name).one_or_none()
-
-        elif user_id is not None:
+        if user_id is not None:
             user = dbsession.query(User).filter_by(user_id=user_id).one_or_none()
+
+        elif name is not None:
+            user = dbsession.query(User).filter_by(name=name).one_or_none()
+        
+        else:
+            user = None
 
         return user
 

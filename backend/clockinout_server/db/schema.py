@@ -10,8 +10,9 @@ from sqlalchemy import Column, Integer, String, ForeignKey, Table, DateTime, Boo
 from sqlalchemy.ext.declarative import declarative_base, DeclarativeMeta
 from sqlalchemy.orm import relationship, class_mapper, ColumnProperty
 from sqlalchemy.orm.session import Session
-from typing import TypeVar, Union, Optional, Type, Iterable
+from typing import TypeVar, Union, Optional, Type, Iterable, List, Mapping, Any
 from clockinout_protocols.clockinoutservice_pb2 import UserInfo, OrgInfo, LocationInfo, TagInfo, UserSession
+from google.protobuf.message import Message
 
 _PROTO_TYPES_TO_DB_MAPPING = {}
 _PROTO_NAMES_TO_DB_MAPPING = {}
@@ -28,11 +29,17 @@ class proto_db_association_meta(DeclarativeMeta):
                 def to_proto(self):
                     return map_db_to_proto_default(self, proto_cls)
                 setattr(cls, "to_proto", to_proto)
+            
+            if not hasattr(cls, "from_proto"):
+                @classmethod
+                def from_proto(cls, protoobj):
+                    return map_proto_to_db_default(protoobj, cls)
+                setattr(cls, "from_proto", from_proto)
 
 
 DBBase = declarative_base(metaclass=proto_db_association_meta)
 S = TypeVar("S", bound=DBBase)
-P = TypeVar("P")
+P = TypeVar("P", bound=Message)
 
 #TODO: wrapper that validates and requires DEFAULT_LOOKUP_KEY
 #OR: do it via mypy
@@ -63,17 +70,22 @@ def lookup_or_pass(session: Session, val: Union[S,str], targettp: Type[S]) -> Op
             return None
         return next(iter(q))
 
-
-def map_db_to_proto_default(dbobj: S, proto_type: Type[P]) -> P:
-    omit_cols = [] if not hasattr(dbobj, "TO_PROTO_OMIT_COLS") else dbobj.TO_PROTO_OMIT_COLS
-    custom_mapping = {} if not hasattr(dbobj, "PROTO_CUSTOM_MAPPING") else dbobj.PROTO_CUSTOM_MAPPING
-    cm = class_mapper(type(dbobj))
+def get_db_column_keys(d: Union[S, Type[S]], omit_cols: Iterable[str], custom_mapping) -> List[str]:
+    if isinstance(d, type):
+        cm = class_mapper(d)
+    else:
+        cm = class_mapper(type(d))
     dbcolkeys = []
     for prop in cm.iterate_properties:
         if isinstance(prop, ColumnProperty):
             if prop.key not in omit_cols:
                 dbcolkeys.append(prop.key)
+    return dbcolkeys
 
+def map_db_to_proto_default(dbobj: S, proto_type: Type[P]) -> P:
+    omit_cols = getattr(dbobj, "TO_PROTO_OMIT_COLS", [])
+    custom_mapping = getattr(dbobj, "PROTO_CUSTOM_MAPPING", {})
+    dbcolkeys = get_db_column_keys(dbobj, omit_cols, custom_mapping)
     proto_field_names = proto_type.DESCRIPTOR.fields_by_name
     
     construct_d = {}
@@ -95,7 +107,32 @@ def map_db_to_proto_default(dbobj: S, proto_type: Type[P]) -> P:
     out = proto_type(**construct_d)
     return out
 
+def map_proto_to_db_default(proto_obj: P, dbtype: Type[S]) -> S:
+    omit_cols = getattr(dbtype, "FROM_PROTO_OMIT_COLS", [])
+    custom_mapping = getattr(dbtype, "PROTO_CUSTOM_MAPPING", {})
+    dbcolkeys = get_db_column_keys(dbtype, omit_cols, custom_mapping)
+    
+    proto_field_names = proto_obj.DESCRIPTOR.fields_by_name
+    construct_d = {}
+    for fieldname, desc in proto_field_names.items():
+        source_field = getattr(proto_obj, fieldname)
+        if isinstance(source_field, Iterable) and not isinstance(source_field, (str, bytes, bytearray)):
+            sf_out = []
+            for sf in source_field:
+                if sf in _PROTO_TYPES_TO_DB_MAPPING:
+                    sf_out.append(_PROTO_TYPES_TO_DB_MAPPING[type(source_field)].from_proto())
+                else:
+                    sf_out.append(sf)
+            source_field = sf_out
 
+        if desc.message_type is None:
+            if fieldname in custom_mapping:
+                construct_d[custom_mapping[fieldname]] = source_field
+            else:
+                construct_d[fieldname] = source_field
+        
+    out = dbtype(**construct_d)
+    return out
 
 
 user_org_association_table = Table("user_org_association", DBBase.metadata,
@@ -133,7 +170,7 @@ class Tag(DBBase):
 class User(DBBase):
     DEFAULT_LOOKUP_KEY="name"
     PROTO_TYPE_MAPPING = UserInfo
-    PROTO_CUSTOM_MAPPING = {"id" : "user_id"}
+    PROTO_CUSTOM_MAPPING = {"id" : "user_id", "password" : "hashed_pw"}
     __tablename__ = "users"
     user_id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)

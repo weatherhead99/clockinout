@@ -126,7 +126,6 @@ class Servicer(ClockInOutServiceServicer):
             for field_name in ["locations_filter", "org_filter"]:
                 if len(getattr(request, field_name)) > 0:
                     raise NotImplementedError("filter field %d not supported yet in user query" % field_name)
-            
             user_id_queries = []
             user_name_queries = []
             for userquery in request.users_filter:
@@ -134,7 +133,6 @@ class Servicer(ClockInOutServiceServicer):
                     user_id_queries.append(userquery.id)
                 elif len(userquery.name) > 0:
                     user_name_queries.append(userquery.name)
-            
             def dbfun():
                 with self.server.get_db_session(expire_on_commit=False) as sess:
                     if len(user_id_queries) == 0 and len(user_name_queries) == 0:
