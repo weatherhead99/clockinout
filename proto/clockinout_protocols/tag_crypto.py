@@ -12,6 +12,7 @@ from nacl.encoding import Base64Encoder, Encodable
 from nacl.exceptions import BadSignatureError
 import json
 import binascii
+import cbor2
 import base64
 from collections import OrderedDict
 from typing import Optional, Union, TypeVar, Type, Generator, Tuple
@@ -59,13 +60,8 @@ class NDEFTagCryptoHandler:
         out = cls(None, verify_key)
         return out
 
-    def provision_process_client(self, tag_uid: bytes) -> provgentp: 
-        """start provisioning process of a new tag. This function is a generator which 
-        will yield a tag message to be signed. This message should be sent to the server,
-        and the signature returned from the server should be sent back into this generator. 
-        
-        The generator will then finally return a string which is the message to be written to the 
-        Text data field of the NFC tag
+    def provision_process_client_start(self, tag_uid: bytes) -> bytes: 
+        """start provisioning process of a new tag. Returns the random message to be written to the tag
         
         :param tag_uid: the unique id of the NFC tag
         :returns: the message to write to the NFC tag
@@ -73,16 +69,17 @@ class NDEFTagCryptoHandler:
         """
         random_message = uuid.uuid4()
         #send out the data to  be sent to the server
-        #server signs, we get it back
-        signature: bytes = yield tag_uid, random_message.bytes
+        return random_message.bytes
+    
+    def provision_process_client_finish(self, tag_uid: bytes, random_message: bytes, signature: bytes):
         try:
-            self.verify(tag_uid, random_message.bytes, signature)
+            self.verify(tag_uid, random_message, signature)
         except BadSignatureError:
             raise TagCryptoError("could not verify tag", ClockInOutErrorCodes.COULD_NOT_VERIFY_TAG)
 
-        tag_write_dict = {"message" : base64.b64encode(random_message.bytes),
-                          "signature" : base64.b64encode(signature)}
-        return json.dumps(tag_write_dict)
+        tag_write_dict = {"msg" : random_message,
+                          "sig" : signature}
+        return cbor2.dumps(tag_write_dict)
 
     def provision_process_server(self, tag_uid: bytes, tag_message: bytes) -> bytes: 
         """ generate a tag signature from the UID of the tag and the message.
@@ -97,8 +94,8 @@ class NDEFTagCryptoHandler:
         message_to_sign = tag_uid + tag_message
         if not self.signing_key:
             raise RuntimeError("tried to sign a message without a loaded signing key")
-        signature = self.signing_key.sign(message_to_sign)
-        return signature
+        smessage = self.signing_key.sign(message_to_sign)
+        return smessage.signature
 
     def verify(self, uid: bytes, msg: bytes, signature: bytes) -> None:
         """ verify the signature on an NFC tag
@@ -114,21 +111,21 @@ class NDEFTagCryptoHandler:
 
 
 
-def load_from_NFC_textfield(field: str) -> Tuple[bytes, bytes]:
+def load_from_NFC_textfield(field: bytes) -> Tuple[bytes, bytes]:
         """ get the parameters to use with NDEFTagCryptoHandler from the text string
         written to the NFC tag
         :param field: the text field as written on the tag, should be valid JSON
         :returns: tuple containg tag_message and tag_signature
         :raises KeyError: if required fields are not present in the loaded JSON
         """
-        dct = json.loads(field)
-        if "message" not in dct:
+        dct = cbor2.loads(field)
+        if "msg" not in dct:
             raise KeyError("required key message not in NDEF field")
-        if "signature" not in dct:
+        if "sig" not in dct:
             raise KeyError("required key signature not in NDEF field")
         
-        message = base64.b64decode(dct["message"])
-        signature = base64.b64decode(dct["signature"])
+        message = dct["msg"]
+        signature = dct["sig"]
         return message, signature
 
 

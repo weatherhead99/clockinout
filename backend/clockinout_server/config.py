@@ -19,6 +19,7 @@ class ClockinoutConfig:
     @property
     def server_config_file(self):
         conf_file = self.config_dir_path / "server_config.ini"
+        return conf_file
 
     def write_server_config(self, confobg: configparser.ConfigParser, overwrite:bool = False):
         if os.path.exists(self.server_config_file) and not overwrite:
