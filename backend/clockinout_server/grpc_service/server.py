@@ -20,7 +20,6 @@ from concurrent.futures import ThreadPoolExecutor
 from clockinout_protocols import PROTO_SCHEMA_VERSION
 import logging
 import clockinout_server
-from ..login_session_management  import LoginSessionManager
 from ..user_management import UserManager
 from config_path import ConfigPath
 from .proto_validation import require_fields, forbid_fields, is_proto_field_set, optional_proto_field, require_oneof
@@ -85,7 +84,6 @@ class Server:
 class Servicer(ClockInOutServiceServicer):
     def __init__(self, server: Server):
         self.userman = UserManager()
-        self.loginman = LoginSessionManager()
         self.server = server
         self.logger = self.server.logger
         self.rbuilder = self.server.get_response_builder
@@ -97,72 +95,6 @@ class Servicer(ClockInOutServiceServicer):
                                                proto_version=PROTO_SCHEMA_VERSION)
         return ret
 
-    async def QueryUsers(self, request: clockinoutservice_pb2.QueryFilter, context):
-        await self.logger.debug("QueryUsers called")
-        with self.rbuilder(clockinoutservice_pb2.UserQueryResponse) as resp:
-            forbid_fields(request, ["times_filter", "locations_filter", "org_filter"])
-            user_id_queries = []
-            user_name_queries = []
-            for userquery in request.users_filter:
-                if userquery.id != 0:
-                    user_id_queries.append(userquery.id)
-                elif len(userquery.name) > 0:
-                    user_name_queries.append(userquery.name)
-            def dbfun():
-                with self.server.get_db_session(expire_on_commit=False) as sess:
-                    if len(user_id_queries) == 0 and len(user_name_queries) == 0:
-                        users = self.userman.query_users(sess, None, None)
-                    else:
-                        users = self.userman.query_users(sess, user_name_queries, user_id_queries)
-                return users
-            users = await self.server.run_blocking_function(dbfun)
-        
-            for dbuser in users:
-                resp.users.append(dbuser.to_proto())
-        return resp
-
-    async def QueryOrgs(self, request: clockinoutservice_pb2.QueryFilter, context):
-        await self.logger.debug("QueryOrgs called")
-        with self.rbuilder(clockinoutservice_pb2.OrgQueryResponse) as resp:
-            forbid_fields(request, ["times_filter", "locations_filter"])
-            require_oneof(request, ["users_filter", "org_filter"])
-            
-            def dbfun():
-                with self.server.get_db_session() as sess:
-                    found_orgs = []
-                    for user in request.users_filter:
-                        rname = optional_proto_field(user, "name")
-                        rid = optional_proto_field(user, "id")
-                        user = self.userman.retrieve_user(sess, rname, rid)
-                        if user is not None:
-                            found_orgs.extend(user.orgs)
-
-
-
-    async def RegisterUser(self, request: clockinoutservice_pb2.UserInfo, context):
-        await self.logger.debug("RegisterUser called")
-        with self.rbuilder(clockinoutservice_pb2.UserInfo) as resp:
-            forbid_fields(request, "id")
-            require_fields(request, "name")
-            require_fields(request, "org")
-
-    async def ProvisionTag(self, request: clockinoutservice_pb2.TagProvisionMessage, context):
-        #TODO: check user permissions to provision tags!
-        self.logger.debug("ProvisionTag called")
-        with self.rbuilder(clockinoutservice_pb2.TagProvisionResponse) as resp:
-            require_fields(request, ["user"])
-            #lookup user
-            def dbfun():
-                with self.server.get_db_session() as sess:
-                    rname = optional_proto_field(request.user, "name")
-                    rid = optional_proto_field(request.user, "id")
-                    user = self.userman.retrieve_user(sess, rname,rid)
-                    if user is None:
-                        raise ValueError("no such user found")
-            await self.server.run_blocking_function(dbfun)
-            
-            
-        return resp
 
 def main():
     cpath = ConfigPath("EOF","clockinout",".ini")

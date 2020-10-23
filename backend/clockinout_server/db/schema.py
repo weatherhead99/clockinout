@@ -8,11 +8,21 @@ Created on Thu Jul  9 02:54:03 2020
 
 from sqlalchemy import Column, Integer, String, ForeignKey, Table, DateTime, Boolean
 from sqlalchemy.ext.declarative import declarative_base, DeclarativeMeta
-from sqlalchemy.orm import relationship, class_mapper, ColumnProperty
+from sqlalchemy.orm import relationship, class_mapper, ColumnProperty, backref
+from sqlalchemy import func
 from sqlalchemy.orm.session import Session
 from typing import TypeVar, Union, Optional, Type, Iterable, List, Mapping, Any
 from clockinout_protocols.clockinoutservice_pb2 import UserInfo, OrgInfo, LocationInfo, TagInfo, UserSession
 from google.protobuf.message import Message
+from datetime import datetime
+from google.protobuf.timestamp_pb2 import Timestamp
+
+def ts_to_proto(dt: datetime):
+    t = Timestamp()
+    t.FromDatetime(dt)
+    return t
+
+PROTO_GLOBAL_CONVERSIONS = {datetime : ts_to_proto}
 
 _PROTO_TYPES_TO_DB_MAPPING = {}
 _PROTO_NAMES_TO_DB_MAPPING = {}
@@ -30,11 +40,12 @@ class proto_db_association_meta(DeclarativeMeta):
                     return map_db_to_proto_default(self, proto_cls)
                 setattr(cls, "to_proto", to_proto)
             
-            if not hasattr(cls, "from_proto"):
-                @classmethod
-                def from_proto(cls, protoobj):
-                    return map_proto_to_db_default(protoobj, cls)
-                setattr(cls, "from_proto", from_proto)
+            #disable for now, rarely needed and not working yet
+            # if not hasattr(cls, "from_proto"):
+            #     @classmethod
+            #     def from_proto(cls, protoobj):
+            #         return map_proto_to_db_default(protoobj, cls)
+            #     setattr(cls, "from_proto", from_proto)
 
 
 DBBase = declarative_base(metaclass=proto_db_association_meta)
@@ -77,10 +88,26 @@ def get_db_column_keys(d: Union[S, Type[S]], omit_cols: Iterable[str], custom_ma
         cm = class_mapper(type(d))
     dbcolkeys = []
     for prop in cm.iterate_properties:
-        if isinstance(prop, ColumnProperty):
-            if prop.key not in omit_cols:
-                dbcolkeys.append(prop.key)
+        if prop.key not in omit_cols:
+            dbcolkeys.append(prop.key)
     return dbcolkeys
+
+def _db_field_to_proto_field(mtype, source_field):
+    if mtype is None:
+        return source_field
+    elif mtype.name in _PROTO_NAMES_TO_DB_MAPPING:
+        return source_field.to_proto()
+    elif type(source_field) in PROTO_GLOBAL_CONVERSIONS:
+        return PROTO_GLOBAL_CONVERSIONS[type(source_field)](source_field)
+    else:
+        return source_field
+
+def _is_non_string_iterable(item) -> bool:
+    if not isinstance(item, Iterable):
+        return False
+    if any( (isinstance(item,_) for _ in (str, bytes, bytearray))):
+        return False
+    return True
 
 def map_db_to_proto_default(dbobj: S, proto_type: Type[P]) -> P:
     omit_cols = getattr(dbobj, "TO_PROTO_OMIT_COLS", [])
@@ -98,11 +125,13 @@ def map_db_to_proto_default(dbobj: S, proto_type: Type[P]) -> P:
             source_field = None
         #fill in trivial types
         if source_field is not None:
-            if desc.message_type is None:
-                construct_d[fieldname] = source_field
-            elif desc.message_type.name in _PROTO_NAMES_TO_DB_MAPPING:
-                construct_d[fieldname] = getattr(dbobj,fieldname).to_proto()
-
+            if _is_non_string_iterable(source_field) and len(source_field) > 0:
+                target_field = [_db_field_to_proto_field(desc.message_type, _) for _ in source_field]
+            elif _is_non_string_iterable(source_field):
+                target_field = []
+            else:
+                target_field = _db_field_to_proto_field(desc.message_type, source_field)
+            construct_d[fieldname] = target_field
     out = proto_type(**construct_d)
     return out
 
@@ -115,7 +144,7 @@ def map_proto_to_db_default(proto_obj: P, dbtype: Type[S]) -> S:
     construct_d = {}
     for fieldname, desc in proto_field_names.items():
         source_field = getattr(proto_obj, fieldname)
-        if isinstance(source_field, Iterable) and not isinstance(source_field, (str, bytes, bytearray)):
+        if _is_non_string_iterables(source_field):
             sf_out = []
             for sf in source_field:
                 if sf in _PROTO_TYPES_TO_DB_MAPPING:
@@ -142,7 +171,11 @@ user_org_association_table = Table("user_org_association", DBBase.metadata,
 class Org(DBBase):
     DEFAULT_LOOKUP_KEY = "name"
     PROTO_TYPE_MAPPING = OrgInfo
-    PROTO_CUSTOM_MAPPING = {"org_id" : "id"}
+    #to avoid infinite recursion on converting to protobuf
+    TO_PROTO_OMIT_COLS = ["child_orgs"]
+    PROTO_CUSTOM_MAPPING = {"id" : "org_id", 
+                            "parent" : "parent_org",
+                            "children": "child_orgs"}
     __tablename__ = "orgs"
     org_id = Column(Integer, primary_key=True)
     name = Column(String, unique=True, nullable=False)
@@ -150,9 +183,13 @@ class Org(DBBase):
     users = relationship("User", secondary=user_org_association_table, 
                          back_populates="orgs")
     
-    admin_user = Column(Integer, ForeignKey("users.user_id"), nullable=False)
-    parent_org = Column(Integer)
+    admin_user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False)
+    admin_user = relationship("User", foreign_keys=admin_user_id)
+    parent_org_id = Column(Integer, ForeignKey("orgs.org_id"), nullable=True)
+    child_orgs = relationship("Org", backref=backref("parent_org", remote_side=org_id))
+    
     membership_enabled = Column(Boolean)
+
 
 
 class Tag(DBBase):
@@ -164,7 +201,7 @@ class Tag(DBBase):
     taguid = Column(String, unique=True, nullable=False) #holds tag uid
     user_id = Column(Integer, ForeignKey("users.user_id"))
     tag_type = Column(Integer)
-    provisioned = Column(DateTime)
+    provisioned = Column(DateTime(timezone=True), server_default=func.now())
 
 class User(DBBase):
     DEFAULT_LOOKUP_KEY="name"
@@ -180,18 +217,20 @@ class User(DBBase):
     sessions = relationship("Session")
     power_level = Column(Integer)
     hashed_pw = Column(String)
-    created = Column(DateTime)
-    modified = Column(DateTime)
+    created = Column(DateTime(timezone=True), server_default=func.now())
+    modified = Column(DateTime(timezone=True))
 
 class Location(DBBase):
     DEFAULT_LOOKUP_KEY = "name"
     PROTO_TYPE_MAPPING = LocationInfo
+    PROTO_CUSTOM_MAPPING = {"id" : "location_id"}
     __tablename__ = "locations"
     location_id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
-    created = Column(DateTime)
-    modified = Column(DateTime)
-    admin_user = Column(Integer, ForeignKey("users.user_id"), nullable=False)
+    created = Column(DateTime(timezone=True), server_default=func.now())
+    modified = Column(DateTime(timezone=True))
+    admin_user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False)
+    admin_user = relationship("User")
     last_seen = Column(DateTime)
 
 
@@ -199,10 +238,24 @@ class Session(DBBase):
     __tablename__ = "sessions"
     PROTO_TYPE_MAPPING = UserSession
     session_id = Column(Integer, primary_key=True)
-    time_start = Column(DateTime)
-    time_end = Column(DateTime)
+    time_start = Column(DateTime(timezone=True), server_default=func.now())
+    time_end = Column(DateTime(timezone=True))
     user_id = Column(Integer, ForeignKey("users.user_id"))
-    
+    user = relationship("User")
+    location_in_id = Column(Integer, ForeignKey("locations.location_id"))
+    location_out_id = Column(Integer, ForeignKey("locations.location_id"))
+    location_in = relationship("Location", foreign_keys=[location_in_id])
+    location_out = relationship("Location", foreign_keys=[location_out_id])
+    tag_id = Column(Integer, ForeignKey("tags.tag_id"))
+    tag = relationship("Tag")
+
+
+#TODO: enum of irregular event types
+class IrregularEvent(DBBase):
+    __tablename__ = "irregularevents"
+    event_id = Column(Integer, primary_key=True)
+    time_logged = Column(DateTime(timezone=True))
+    tag_involved_id = Column(Integer, ForeignKey("tags.tag_id"))
 
 if __name__ == "__main__":
     from sqlalchemy import create_engine

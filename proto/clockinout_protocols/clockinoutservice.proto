@@ -36,16 +36,18 @@ message LocationInfo{
   int32 id = 1;
   string name = 2;
   bytes uid = 3;
-  google.protobuf.Timestamp last_seen = 4;
+  UserInfo admin_user = 4;
+  google.protobuf.Timestamp last_seen = 5;
 }
 
 message OrgInfo {
   int32 id = 1;
   string name = 2;
   OrgInfo parent = 3;
-  UserInfo admin_user = 4;
-  bool membership_enabled = 5;
-  repeated UserInfo users = 6;
+  repeated OrgInfo children = 4;
+  UserInfo admin_user = 5;
+  bool membership_enabled = 6;
+  repeated UserInfo users = 7;
 }
 
 message ErrorInfo {
