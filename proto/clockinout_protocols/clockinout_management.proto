@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package clockinout;
+import "clockinout_protocols/clockinoutservice.proto";
+
+
+message ItemRequest {
+  oneof item
+  {
+    UserInfo user = 1;
+    OrgInfo org = 2;
+    LocationInfo loc = 3;
+  }
+}
+
+message ItemResponse
+{
+  ErrorInfo err = 1;
+  oneof item
+  {
+    UserInfo user = 2;
+    OrgInfo org = 3;
+    LocationInfo loc = 4;
+  }
+}
+
+message AssociationRequest
+{
+  UserInfo user = 1;
+  oneof param
+  {
+    TagInfo tag = 2;
+    OrgInfo org = 3;
+  }
+}
+
+
+service ClockInOutManagementService
+{
+  rpc NewItem(ItemRequest) returns (ItemResponse);
+  rpc DeleteItem(ItemRequest) returns (ItemResponse);
+  rpc ModifyItem(ItemRequest) returns (ItemResponse);
+
+  rpc UserAddAssociation(AssociationRequest) returns (ItemResponse);
+  rpc UserRemoveAssociation(AssociationRequest) returns (ItemResponse);
+
+}

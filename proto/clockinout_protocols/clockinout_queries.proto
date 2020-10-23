@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package clockinout;
+import "clockinout_protocols/clockinoutservice.proto";
+
+message UserQueryRequest
+{
+  UserInfo user_filter = 1;
+  bool return_orgs = 2;
+  bool return_tags = 3;
+  bool return_sessions = 4;
+}
+
+message OrgQueryRequest
+{
+  OrgInfo org_filter = 1;
+  bool return_users = 2;
+}
+
+message SessionQueryRequest
+{
+  oneof query_filter
+  {
+    UserInfo user = 1;
+    OrgInfo org = 2;
+    LocationInfo location = 3;
+  }
+  TimeRange time_filter = 4;
+  bool return_tag = 5;
+  bool return_locations = 6;
+}
+
+message QueryResult
+{
+  oneof result {
+    UserInfo user = 1;
+    OrgInfo org = 2;
+    UserSession session = 3;
+  }
+}
+
+message QueryResponse
+{
+  ErrorInfo err = 1;
+  repeated QueryResult results = 2;
+}
+  
+
+service ClockInOutQueryService
+{
+  rpc QueryUsers(UserQueryRequest) returns (QueryResponse);
+  rpc QueryOrgs(OrgQueryRequest) returns (QueryResponse);
+  rpc QuerySessions(SessionQueryRequest) returns (QueryResponse);
+
+}

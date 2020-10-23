@@ -29,12 +29,14 @@ message TagInfo{
   bytes tag_uid = 2;
   bytes tag_message =3;
   bytes tag_signature = 4;
+  google.protobuf.Timestamp provisioned = 5;
 }
 
 message LocationInfo{
   int32 id = 1;
   string name = 2;
   bytes uid = 3;
+  google.protobuf.Timestamp last_seen = 4;
 }
 
 message OrgInfo {
@@ -43,6 +45,7 @@ message OrgInfo {
   OrgInfo parent = 3;
   UserInfo admin_user = 4;
   bool membership_enabled = 5;
+  repeated UserInfo users = 6;
 }
 
 message ErrorInfo {
@@ -63,6 +66,7 @@ message UserInfo {
   repeated TagInfo user_tags = 6;
   google.protobuf.Timestamp created = 7;
   google.protobuf.Timestamp modified =8;
+  repeated UserSession sessions = 9;
 }
 
 message UserSession {
@@ -70,6 +74,7 @@ message UserSession {
   TimeRange times = 2;
   LocationInfo location_in = 3;
   LocationInfo location_out = 4;
+  TagInfo tag = 5;
 }
 
 // specific request & response messages
@@ -90,42 +95,15 @@ message ClockInOutResponse {
   google.protobuf.Timestamp actual_time = 3;
 }
 
-message QueryFilter{
-  //time range over which to return responses (can leave blank to get "current" sessions, with no end time)
-  TimeRange times_filter = 1;
-  //can query individual users
-  repeated UserInfo users_filter = 2;
-  //filter only on certain login locations
-  repeated LocationInfo locations_filter = 3;
-  //filter on org
-  repeated OrgInfo org_filter = 4;
-}
-
-message SessionQueryResponse {
-  ErrorInfo err = 1;
-  repeated UserSession sessions = 2;
-}
-
-message UserQueryResponse {
-  ErrorInfo err = 1;
-  repeated UserInfo users = 2;
-}
-
-message OrgQueryResponse {
-  ErrorInfo err = 1;
-  repeated OrgInfo orgs =3;
-}
-
-message LocationQueryResponse{
-  ErrorInfo err = 1;
-  repeated LocationInfo locations = 2;
-}
-
 message EventControl {
   //command used to start and stop the stream
   uint32 stream_command = 1;
-  //query for filtering users, orgs, etc
-  QueryFilter filter = 2;
+  //filter by location or org
+  oneof filter
+  {
+    OrgInfo org = 2;
+    LocationInfo loc = 3;
+  }
 }
 
 message Event{
@@ -160,14 +138,8 @@ message OrgResponse{
   OrgInfo org = 2;
 }
 
-message UserResponse{
-  ErrorInfo err =1;
-  UserInfo user = 2;
-}
 
 message TagProvisionMessage{
-  //user to associate with the new tag
-  UserInfo user = 1;
   //taginfo pre-filled with tag UID
   TagInfo tag = 2;
   //location info pre-filled
@@ -189,32 +161,14 @@ service ClockInOutService
 
   //called to clock in or out via other methods (e.g. QR code, MAC address)
   rpc ClockInOutManual(ClockInOutRequest) returns (ClockInOutResponse);
-  
-  //called by display devices requesting information
-  rpc QuerySessions(QueryFilter) returns (SessionQueryResponse);
-  rpc QueryUsers(QueryFilter) returns (UserQueryResponse);
-  rpc QueryOrgs(QueryFilter) returns (OrgQueryResponse);
-  rpc QueryLocations(QueryFilter) returns (LocationQueryResponse);
-
-  //user management functions (auth will be controlled via out of band call credentials)
-  rpc RegisterUser(UserInfo) returns (UserResponse);
-  rpc DeleteUser(UserInfo) returns (UserResponse);
-  rpc ModifyUser(UserInfo) returns (UserResponse);
 
   //used to provision new tag (UID only)
   rpc ProvisionTag(TagProvisionMessage) returns (TagProvisionResponse);
   rpc DeProvisionTag(TagInfo) returns (TagProvisionResponse);
 
   //location management functions
-  rpc RegisterLocation(LocationInfo) returns (LocationResponse);
   rpc LocationKeepAlive(LocationInfo) returns (LocationResponse);
-  rpc DeleteLocation(LocationInfo) returns (LocationResponse);
 
-  //org management functions
-  rpc RegisterOrg(OrgInfo) returns (OrgResponse);
-  rpc ModifyOrg(OrgInfo) returns (OrgResponse);
-  rpc DeleteOrg(OrgInfo) returns (OrgResponse);
-  
   //live streaming of events
   rpc StreamEvents(stream EventControl) returns (stream Event);
 
