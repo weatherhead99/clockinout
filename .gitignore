@@ -2,9 +2,13 @@
 *~
 
 #don't commit built protobuf python definitions
-./proto/clockinout_protocols/clockinoutservice_pb2.py
-./proto/clockinout_protocols/clockinoutservice_pb2_grpc.py
+proto/clockinout_protocols/*_pb2.py
+proto/clockinout_protocols/*_pb2_grpc.py
+*#*
 
+#sqlite3 dbs
+*.db
+*.sqlite3
 
 
 # Byte-compiled / optimized / DLL files
