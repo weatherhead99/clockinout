@@ -200,5 +200,4 @@ class ProtoDBOrg(ProtoDBItem):
                 raise ValueError("couldn't find matching parent org in database")
             if parent_org_lookup != dbobj.parent_org:
                 dbobj.parent_org = parent_org_lookup
-        
-                
+

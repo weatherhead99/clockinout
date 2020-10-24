@@ -60,6 +60,7 @@ class ClockInOutErrorCodes(Enum):
     USER_LOGIN_NOT_ALLOWED = 4
     USER_BAD_CREDENTIALS = 5
     USER_INSUFFICIENT_PERMISSIONS = 6
+    METHOD_REQUIRES_LOGIN_SESSION = 7
 
 class ClockInOutBaseError(Exception):
     def __init__(self, msg: str, code: Optional[ClockInOutErrorCodes]=None):

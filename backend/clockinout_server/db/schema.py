@@ -10,7 +10,7 @@ from sqlalchemy import Column, Integer, String, ForeignKey, Table, DateTime, Boo
 from sqlalchemy.ext.declarative import declarative_base, DeclarativeMeta
 from sqlalchemy.orm import relationship, class_mapper, ColumnProperty, backref
 from sqlalchemy import func
-from sqlalchemy.orm.session import Session
+from sqlalchemy.orm.session import Session as ORMSession
 from typing import TypeVar, Union, Optional, Type, Iterable, List, Mapping, Any
 from clockinout_protocols.clockinoutservice_pb2 import UserInfo, OrgInfo, LocationInfo, TagInfo, UserSession
 from google.protobuf.message import Message
@@ -65,7 +65,7 @@ S = TypeVar("S", bound=DBBase)
 
 #TODO: wrapper that validates and requires DEFAULT_LOOKUP_KEY
 #OR: do it via mypy
-def lookup_or_pass(session: Session, val: Union[S,str], targettp: Type[S]) -> Optional[S]:
+def lookup_or_pass(session: ORMSession, val: Union[S,str], targettp: Type[S]) -> Optional[S]:
     """ convenience function to query unique values from the database
         
         session: sqlalchemy.orm.session.Session
@@ -103,11 +103,11 @@ def get_db_column_keys(d: Union[S, Type[S]], omit_cols: Iterable[str], custom_ma
             dbcolkeys.append(prop.key)
     return dbcolkeys
 
-def _db_field_to_proto_field(mtype, source_field):
+def _db_field_to_proto_field(mtype, source_field, exclude_cols):
     if mtype is None:
         return source_field
     elif mtype.name in _PROTO_NAMES_TO_DB_MAPPING:
-        return source_field.to_proto()
+        return source_field.to_proto(exclude_cols)
     elif type(source_field) in PROTO_GLOBAL_CONVERSIONS:
         return PROTO_GLOBAL_CONVERSIONS[type(source_field)](source_field)
     else:
@@ -151,11 +151,11 @@ def map_db_to_proto_default(dbobj: S, proto_type: Type[P],
         #fill in trivial types
         if source_field is not None:
             if _is_non_string_iterable(source_field) and len(source_field) > 0:
-                target_field = [_db_field_to_proto_field(desc.message_type, _) for _ in source_field]
+                target_field = [_db_field_to_proto_field(desc.message_type, _, exclude_cols) for _ in source_field]
             elif _is_non_string_iterable(source_field):
                 target_field = []
             else:
-                target_field = _db_field_to_proto_field(desc.message_type, source_field)
+                target_field = _db_field_to_proto_field(desc.message_type, source_field, exclude_cols)
             construct_d[fieldname] = target_field
     out = proto_type(**construct_d)
     return out
@@ -198,10 +198,10 @@ def map_proto_to_db_default(proto_obj: P, dbtype: Type[S],
                 if len(source_field) > 0:
                     for sf in source_field:
                         if type(sf) in _PROTO_TYPES_TO_DB_MAPPING:
-                            target_field.append(_PROTO_TYPES_TO_DB_MAPPING[type(sf)].from_proto(sf))
+                            target_field.append(_PROTO_TYPES_TO_DB_MAPPING[type(sf)].from_proto(sf, exclude_cols))
             else:
                 if type(source_field) in _PROTO_TYPES_TO_DB_MAPPING:
-                    target_field = _PROTO_TYPES_TO_DB_MAPPING[type(source_field)].from_proto(source_field)
+                    target_field = _PROTO_TYPES_TO_DB_MAPPING[type(source_field)].from_proto(source_field, exclude_cols)
                 else:
                     target_field = source_field
             construct_d[dbcol] = target_field
@@ -245,11 +245,13 @@ class Org(DBBase):
 class Tag(DBBase):
     DEFAULT_LOOKUP_KEY = "tagstr"
     PROTO_TYPE_MAPPING = TagInfo
+    PROTO_CUSTOM_MAPPING = {"tag_uid" : "taguid", "tag_message" : "tagstr"}
     __tablename__ = "tags"
     tag_id = Column(Integer, primary_key=True)
     tagstr = Column(String, unique=True, nullable=False) #holds binary message stored on the tag
     taguid = Column(String, unique=True, nullable=False) #holds tag uid
     user_id = Column(Integer, ForeignKey("users.user_id"))
+    user = relationship("User")
     tag_type = Column(Integer)
     provisioned = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -287,7 +289,7 @@ class Location(DBBase):
 
 class Session(DBBase):
     __tablename__ = "sessions"
-    #PROTO_TYPE_MAPPING = UserSession
+    PROTO_TYPE_MAPPING = UserSession
     session_id = Column(Integer, primary_key=True)
     time_start = Column(DateTime(timezone=True), server_default=func.now())
     time_end = Column(DateTime(timezone=True))

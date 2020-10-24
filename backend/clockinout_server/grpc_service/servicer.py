@@ -11,6 +11,7 @@ class ServicerBase:
         self.server = server
         self.logger = self.server.logger
         self.rbuilder = self.server.get_response_builder
+        self.login_manager = self.server.login_manager
 
 
 

@@ -8,24 +8,16 @@ Created on Thu Jul  9 21:23:37 2020
 
 import asyncio
 import aiologger
-import os
 from grpc.experimental.aio import server, init_grpc_aio
 from grpc_reflection.v1alpha import reflection
 import functools
 
-from clockinout_protocols import clockinoutservice_pb2
-from clockinout_protocols.errors import InvalidRequest, ProtoMessageWithErrorInformation
 from concurrent.futures import ThreadPoolExecutor
 
-import logging
-import clockinout_server
-from ..db.proto_query import ProtoDBQuery
-from ..db.schema import User
-from ..user_management import UserManager
 from ..login_session_manager import LoginSessionManager
 from ..config import ClockinoutConfig
-from .proto_validation import require_fields, forbid_fields, is_proto_field_set, optional_proto_field, require_oneof
 from clockinout_protocols.errors import fill_proto_errors
+from clockinout_protocols.types import ProtoMessageWithErrorInformation
 from nacl.signing import SigningKey
 from nacl.encoding import Base64Encoder
 from sqlalchemy import create_engine
@@ -33,28 +25,26 @@ from sqlalchemy.orm import sessionmaker
 from contextlib import contextmanager
 from typing import Optional
 from .item_service import ManagementServicer
-from clockinout_protocols import clockinout_management_pb2
-from clockinout_protocols.clockinout_management_pb2_grpc import add_ClockInOutManagementServiceServicer_to_server
-from clockinout_protocols.clockinout_queries_pb2_grpc import add_ClockInOutQueryServiceServicer_to_server
 from .query_service import QueryServicer
-from clockinout_protocols import clockinout_queries_pb2
 from .clockinout_service import Servicer
+from ..login_session_manager import LoginSessionManager
+from datetime import timedelta
 
 class Server:
     def __init__(self, db_conn_str: str, servestr: int, event_loop, 
-                 public_key: bytes,
-                 max_thread_workers:int = 4):
+                 max_thread_workers:int = 4, **kwargs):
         init_grpc_aio()
-        self.public_key = public_key
+        
         self._server = server()
         self._server.add_insecure_port(servestr)
         self.logger = aiologger.Logger.with_default_handlers(name="clockinout_server")
         self.event_loop = event_loop
         self.threadexecutor = ThreadPoolExecutor(max_thread_workers, "clockinout_worker_")
+        self.login_manager = LoginSessionManager(timedelta(hours=1), self.threadexecutor, self.logger)
         self._connect_db(db_conn_str)
         self.service_names = {reflection.SERVICE_NAME}
 
-        self._clockinout_servicer = Servicer(self)
+        self._clockinout_servicer = Servicer(self, **kwargs)
         self._management_servicer = ManagementServicer(self)
         self._query_servicer = QueryServicer(self)
 
@@ -102,10 +92,10 @@ def main():
     cobj = ClockinoutConfig()
     cfg = cobj.read_server_config()
     
-    public_key = SigningKey(cfg["tags"]["signingkey"], encoder=Base64Encoder).verify_key.encode()
+    private_key = SigningKey(cfg["tags"]["signingkey"], encoder=Base64Encoder).encode()
     #aiologger.basicConfig(level=logging.DEBUG)
     loop = asyncio.get_event_loop()
-    apiserver = Server(cfg["db"]["connstr"], "[::]:50051", loop, public_key)
+    apiserver = Server(cfg["db"]["connstr"], "[::]:50051", loop, private_key=private_key)
     apiserver.run()
 
 
