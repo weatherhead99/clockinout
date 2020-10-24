@@ -16,13 +16,17 @@ from clockinout_protocols.clockinoutservice_pb2 import UserInfo, OrgInfo, Locati
 from google.protobuf.message import Message
 from datetime import datetime
 from google.protobuf.timestamp_pb2 import Timestamp
+from ..grpc_service.proto_validation import is_proto_field_set
 
 def ts_to_proto(dt: datetime):
     t = Timestamp()
     t.FromDatetime(dt)
     return t
 
+
+
 PROTO_GLOBAL_CONVERSIONS = {datetime : ts_to_proto}
+DB_GLOBAL_CONVERSIONS = {Timestamp : lambda ts: ts.ToDatetime()}
 
 _PROTO_TYPES_TO_DB_MAPPING = {}
 _PROTO_NAMES_TO_DB_MAPPING = {}
@@ -36,21 +40,28 @@ class proto_db_association_meta(DeclarativeMeta):
             _PROTO_NAMES_TO_DB_MAPPING[typename] = cls
             
             if not hasattr(cls, "to_proto"):
-                def to_proto(self):
-                    return map_db_to_proto_default(self, proto_cls)
+                def to_proto(self, exclude_cols: Optional[List[str]] = None):
+                    return map_db_to_proto_default(self, proto_cls, exclude_cols)
                 setattr(cls, "to_proto", to_proto)
-            
-            #disable for now, rarely needed and not working yet
-            # if not hasattr(cls, "from_proto"):
-            #     @classmethod
-            #     def from_proto(cls, protoobj):
-            #         return map_proto_to_db_default(protoobj, cls)
-            #     setattr(cls, "from_proto", from_proto)
+            if not hasattr(cls, "from_proto"):
+                @classmethod
+                def from_proto(cls, protoobj, **kwargs):
+                    return map_proto_to_db_default(protoobj, cls, **kwargs)
+                setattr(cls, "from_proto", from_proto)
+        if hasattr(cls, "PROTO_CUSTOM_MAPPING"):
+            db_custom_mapping = {v:k for k,v in cls.PROTO_CUSTOM_MAPPING.items()}
+            setattr(cls, "DB_CUSTOM_MAPPING", db_custom_mapping)
 
 
-DBBase = declarative_base(metaclass=proto_db_association_meta)
-S = TypeVar("S", bound=DBBase)
+#DBBase = declarative_base(metaclass=proto_db_association_meta)
+
 P = TypeVar("P", bound=Message)
+
+
+class DBBase:...
+DBBase = declarative_base(metaclass=proto_db_association_meta, cls=DBBase)
+
+S = TypeVar("S", bound=DBBase)
 
 #TODO: wrapper that validates and requires DEFAULT_LOOKUP_KEY
 #OR: do it via mypy
@@ -102,6 +113,17 @@ def _db_field_to_proto_field(mtype, source_field):
     else:
         return source_field
 
+def _proto_field_to_db_field(mtype, source_field):
+    if mtype is None:
+        return source_field
+    elif mtype.name in _PROTO_NAMES_TO_DB_MAPPING:
+        return _PROTO_NAMES_TO_DB_MAPPING[mtype.name].from_proto(source_field)
+    elif type(source_field) in DB_GLOBAL_CONVERSIONS:
+        return DB_GLOBAL_CONVERSIONS[type(source_field)](source_field)
+    else:
+        return source_field
+
+
 def _is_non_string_iterable(item) -> bool:
     if not isinstance(item, Iterable):
         return False
@@ -109,7 +131,8 @@ def _is_non_string_iterable(item) -> bool:
         return False
     return True
 
-def map_db_to_proto_default(dbobj: S, proto_type: Type[P]) -> P:
+def map_db_to_proto_default(dbobj: S, proto_type: Type[P], 
+                            exclude_cols: Optional[List[str]] = None) -> P:
     omit_cols = getattr(dbobj, "TO_PROTO_OMIT_COLS", [])
     custom_mapping = getattr(dbobj, "PROTO_CUSTOM_MAPPING", {})
     dbcolkeys = get_db_column_keys(dbobj, omit_cols, custom_mapping)
@@ -117,6 +140,8 @@ def map_db_to_proto_default(dbobj: S, proto_type: Type[P]) -> P:
 
     construct_d = {}
     for fieldname, desc in proto_field_names.items():
+        if exclude_cols and fieldname in exclude_cols: 
+            continue
         if fieldname in dbcolkeys:
             source_field = getattr(dbobj, fieldname)
         elif fieldname in custom_mapping and custom_mapping[fieldname] not in omit_cols:
@@ -135,30 +160,52 @@ def map_db_to_proto_default(dbobj: S, proto_type: Type[P]) -> P:
     out = proto_type(**construct_d)
     return out
 
-def map_proto_to_db_default(proto_obj: P, dbtype: Type[S]) -> S:
+def map_proto_to_db_default(proto_obj: P, dbtype: Type[S], 
+                            exclude_cols: Optional[List[str]] = None) -> S:
     omit_cols = getattr(dbtype, "FROM_PROTO_OMIT_COLS", [])
     custom_mapping = getattr(dbtype, "PROTO_CUSTOM_MAPPING", {})
+    reverse_mapping = getattr(dbtype, "DB_CUSTOM_MAPPING", {})
     dbcolkeys = get_db_column_keys(dbtype, omit_cols, custom_mapping)
     
-    proto_field_names = proto_obj.DESCRIPTOR.fields_by_name
+    if exclude_cols is not None:
+        all_omit = omit_cols + exclude_cols
+    else:
+        all_omit = omit_cols
+    
     construct_d = {}
-    for fieldname, desc in proto_field_names.items():
-        source_field = getattr(proto_obj, fieldname)
-        if _is_non_string_iterables(source_field):
-            sf_out = []
-            for sf in source_field:
-                if sf in _PROTO_TYPES_TO_DB_MAPPING:
-                    sf_out.append(_PROTO_TYPES_TO_DB_MAPPING[type(source_field)].from_proto())
-                else:
-                    sf_out.append(sf)
-            source_field = sf_out
-
-        if desc.message_type is None:
-            if fieldname in custom_mapping:
-                construct_d[custom_mapping[fieldname]] = source_field
+    for dbcol in dbcolkeys:
+        if exclude_cols and dbcol in all_omit:
+            continue
+        elif exclude_cols and dbcol in reverse_mapping and reverse_mapping[dbcol] in all_omit:
+            continue
+        elif dbcol in reverse_mapping:
+            if is_proto_field_set(proto_obj, reverse_mapping[dbcol]):
+                source_field = getattr(proto_obj, reverse_mapping[dbcol])
             else:
-                construct_d[fieldname] = source_field
-        
+                source_field = None
+            
+        elif dbcol in proto_obj.DESCRIPTOR.fields_by_name:
+            if is_proto_field_set(proto_obj, dbcol):
+                source_field = getattr(proto_obj, dbcol)
+            else:
+                source_field = None
+        else:
+            source_field = None
+        if source_field is not None:
+            print("%s : %s" % (type(source_field), dbcol))
+            if _is_non_string_iterable(source_field):
+                target_field = []
+                if len(source_field) > 0:
+                    for sf in source_field:
+                        if type(sf) in _PROTO_TYPES_TO_DB_MAPPING:
+                            target_field.append(_PROTO_TYPES_TO_DB_MAPPING[type(sf)].from_proto(sf))
+            else:
+                if type(source_field) in _PROTO_TYPES_TO_DB_MAPPING:
+                    target_field = _PROTO_TYPES_TO_DB_MAPPING[type(source_field)].from_proto(source_field)
+                else:
+                    target_field = source_field
+            construct_d[dbcol] = target_field
+    
     out = dbtype(**construct_d)
     return out
 
@@ -173,6 +220,9 @@ class Org(DBBase):
     PROTO_TYPE_MAPPING = OrgInfo
     #to avoid infinite recursion on converting to protobuf
     TO_PROTO_OMIT_COLS = ["child_orgs"]
+    #note can't take parent org directly from proto, it must be looked up
+    #same with users
+    FROM_PROTO_OMIT_COLS = ["child_orgs", "users", "parent_org", "admin_user"]
     PROTO_CUSTOM_MAPPING = {"id" : "org_id", 
                             "parent" : "parent_org",
                             "children": "child_orgs"}
@@ -206,16 +256,17 @@ class Tag(DBBase):
 class User(DBBase):
     DEFAULT_LOOKUP_KEY="name"
     PROTO_TYPE_MAPPING = UserInfo
-    PROTO_CUSTOM_MAPPING = {"id" : "user_id", "password" : "hashed_pw"}
+    PROTO_CUSTOM_MAPPING = {"id" : "user_id", "org" : "orgs"}
     TO_PROTO_OMIT_COLS = ["hashed_pw"]
+    FROM_PROTO_OMIT_COLS = ["created", "modified", "orgs", "tags", "sessions"]
     __tablename__ = "users"
     user_id = Column(Integer, primary_key=True)
-    name = Column(String, nullable=False)
+    name = Column(String, nullable=False, unique=True)
     tags = relationship("Tag")
     orgs = relationship("Org", secondary=user_org_association_table,
                         back_populates="users")
     sessions = relationship("Session")
-    power_level = Column(Integer)
+    power_level = Column(Integer, default=0)
     hashed_pw = Column(String)
     created = Column(DateTime(timezone=True), server_default=func.now())
     modified = Column(DateTime(timezone=True))
@@ -236,7 +287,7 @@ class Location(DBBase):
 
 class Session(DBBase):
     __tablename__ = "sessions"
-    PROTO_TYPE_MAPPING = UserSession
+    #PROTO_TYPE_MAPPING = UserSession
     session_id = Column(Integer, primary_key=True)
     time_start = Column(DateTime(timezone=True), server_default=func.now())
     time_end = Column(DateTime(timezone=True))
@@ -257,14 +308,3 @@ class IrregularEvent(DBBase):
     time_logged = Column(DateTime(timezone=True))
     tag_involved_id = Column(Integer, ForeignKey("tags.tag_id"))
 
-if __name__ == "__main__":
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import sessionmaker
-    engine = create_engine("sqlite:///:memory:", echo=True)
-    sessions = sessionmaker(bind=engine)
-    session = sessions()
-    DBBase.metadata.create_all(engine)
-    
-    new_user = User(name="admin", hashed_pw="secret_password")
-    session.add(new_user)
-    session.commit()

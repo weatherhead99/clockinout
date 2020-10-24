@@ -7,34 +7,30 @@ Created on Wed Oct 21 22:40:25 2020
 """
 
 from clockinout_protocols.errors import check_response_errors
-from clockinout_protocols.clockinoutservice_pb2 import empty, QueryFilter, TagProvisionMessage, UserInfo, TimeRange
-from clockinout_protocols.clockinoutservice_pb2 import OrgInfo
+from clockinout_protocols.clockinoutservice_pb2 import empty, UserInfo
 from clockinout_protocols.clockinoutservice_pb2_grpc import ClockInOutServiceStub
+
+from clockinout_protocols.clockinout_management_pb2_grpc import ClockInOutManagementServiceStub
+from clockinout_protocols.clockinout_management_pb2 import ItemRequest
+
 import grpc
 from datetime import datetime
 
-from clockinout_client.sync_client import ClockinoutSyncClient
 
+channel = grpc.insecure_channel("localhost:50051")
+stub = ClockInOutServiceStub(channel)
+manstub = ClockInOutManagementServiceStub(channel)
 
-client = ClockinoutSyncClient("localhost:50051")
-server_info = client.ServerInfo
+req = empty()
+server_info = stub.GetServerInfo(req)
 
 print(server_info)
 
-#manually lookup a user
-qf = QueryFilter(users_filter=[UserInfo(name="admin")])
+#admin_login
+ulogin = UserInfo(name="admin", password="Passw0rd99")
+login_response = check_response_errors(stub.AdminLogin(ulogin))
 
-resp = check_response_errors(client.stub.QueryUsers(qf))
-print(resp)
 
-#now lookup a user who doesn't exist
+req = ItemRequest(user=UserInfo(name="new_user_name2"))
+add_response = check_response_errors(manstub.NewItem(req))
 
-qf = QueryFilter(users_filter=[UserInfo(name="boom")])
-resp = check_response_errors(client.stub.QueryUsers(qf))
-
-print("----")
-print(resp)
-
-#now do something not allowed (not supported yet) - this will raise an exception
-qf = QueryFilter(org_filter=[OrgInfo(name="myorg")])
-resp = check_response_errors(client.stub.QueryUsers(qf))

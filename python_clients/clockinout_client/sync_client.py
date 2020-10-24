@@ -13,7 +13,8 @@ from clockinout_protocols.clockinoutservice_pb2_grpc import ClockInOutServiceStu
 from collections import namedtuple
 from typing import Union, Iterable
 
-serverinfo = namedtuple("serverinfo", ["version", "proto_version"])
+serverinfo = namedtuple("serverinfo", ["version", "proto_version","public_key",
+                                       "legacy_enabled"])
 userinfo = namedtuple("userinfo", ["id", "name"])
 
 class ClockinoutSyncClient:
@@ -26,5 +27,6 @@ class ClockinoutSyncClient:
     def ServerInfo(self):
         req = clockinoutservice_pb2.empty()
         resp = self.stub.GetServerInfo(req, **self.callkwargs)
-        return serverinfo(resp.version, resp.proto_version)
+        return serverinfo(resp.version, resp.proto_version, resp.tag_provision_,
+                          resp.legacy_enabled)
 

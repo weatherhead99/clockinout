@@ -17,21 +17,14 @@ class OrgManager:
                        user: Union[User,str],
                        parent_org: Optional[Union[Org, str]],
                        enable_membership: bool = False) -> Org:
-        
-        user_id = None
         if user is not None:
             user = lookup_or_pass(dbsession, user, User)
-            if user is not None:
-                user_id = user.user_id
-        
-        parent_org_id = None
+            
         if parent_org is not None:
             parent_org = lookup_or_pass(dbsession, parent_org, Org)
-            if parent_org is not None:
-                parent_org_id = parent_org.org_id
         
-        new_org = Org(name=orgname, admin_user=user_id, 
-                      parent_org=parent_org_id, membership_enabled=enable_membership)
+        new_org = Org(name=orgname, admin_user=user, 
+                      parent_org=parent_org, membership_enabled=enable_membership)
         
         dbsession.add(new_org)
         return new_org

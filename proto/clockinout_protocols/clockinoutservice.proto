@@ -133,6 +133,7 @@ message ServerInfo{
 message LoginResponse{
   ErrorInfo err = 1;
   bytes sessionkey = 2;
+  google.protobuf.Timestamp expiry = 3;
 }
 
 message OrgResponse{
