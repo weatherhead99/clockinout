@@ -124,21 +124,17 @@ message LocationResponse{
 }
 
 message ServerInfo{
-  string version = 1;
-  string proto_version = 2;
-  bytes tag_provision_publickey = 3;
-  bool legacy_provision_enabled = 4;
+  ErrorInfo err = 1;
+  string version = 2;
+  string proto_version = 3;
+  bytes tag_provision_publickey = 4;
+  bool legacy_provision_enabled = 5;
 }
 
 message LoginResponse{
   ErrorInfo err = 1;
   bytes sessionkey = 2;
   google.protobuf.Timestamp expiry = 3;
-}
-
-message OrgResponse{
-  ErrorInfo err = 1;
-  OrgInfo org = 2;
 }
 
 

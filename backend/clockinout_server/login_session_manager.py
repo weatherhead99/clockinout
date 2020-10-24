@@ -28,6 +28,7 @@ class LoginSessionManager:
                  lg: Optional[Logger] = None):
         self.session_length = session_length
         self._sessions: Dict[bytes, login_sesh] = {}
+        self._user_logins = []
         self.lg = lg
         self._executor = executor
 
