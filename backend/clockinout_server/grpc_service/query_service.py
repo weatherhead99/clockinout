@@ -12,6 +12,7 @@ from ..db.proto_query import ProtoDBQuery
 from ..db.schema import User, Org
 from clockinout_protocols.clockinout_queries_pb2 import DESCRIPTOR
 from .servicer import ServicerBase
+from typing import Iterable
 
 class QueryServicer(ServicerBase, ClockInOutQueryServiceServicer):
     def __init__(self, server):
@@ -28,11 +29,18 @@ class QueryServicer(ServicerBase, ClockInOutQueryServiceServicer):
                     exclude_cols = []
                     if not request.return_orgs:
                         exclude_cols.append("org")
+                    else:
+                        exclude_cols.append("users")
                     if not request.return_tags:
                         exclude_cols.append("user_tags")
                     if not request.return_sessions:
                         exclude_cols.append("sessions")
-                    retproto = [_.to_proto(exclude_cols) for _ in items]
+                    if items is None:
+                        return []
+                    elif not isinstance(items, Iterable):
+                        retproto = [items.to_proto(exclude_cols)]
+                    else:
+                        retproto = [_.to_proto(exclude_cols) for _ in items]
                     return retproto
             userprotos = await self.server.run_blocking_function(dbfun)
             retproto = [QueryResult(user=_) for _ in userprotos]

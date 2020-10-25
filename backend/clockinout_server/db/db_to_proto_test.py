@@ -8,7 +8,8 @@ Created on Fri Oct 23 22:59:26 2020
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from clockinout_server.db.schema import DBBase, User, Org
+from clockinout_server.db.schema import DBBase, User, Org, Session, Tag
+from datetime import datetime
 
 if __name__ == "__main__":
     engine = create_engine("sqlite://")
@@ -21,33 +22,20 @@ if __name__ == "__main__":
     admin_user = User(name="testadmin")
     session.add(admin_user)
     session.commit()
-    
-    #pout = admin_user.to_proto()
-    
-    #create org
-    base_org = Org(name="testorg", admin_user = admin_user)
-    session.add(base_org)
-    
-    child_org_1 = Org(name="child_1", admin_user=admin_user, parent_org=base_org)
-    session.add(child_org_1)
+
+    #create tag
+    dbtag = Tag(taguid=b"\x01"*12, tagstr=b"hello", user=admin_user)
+    session.add(dbtag)
     session.commit()
-
-
-    user2 = User(name="regularjoe")
-    session.add(user2)
-    child_org_1.users.append(user2)
-    session.commit()
-
-    user2.orgs.append(child_org_1)
-    session.commit()
-
-    user3 = User(name="regularsue")
-    session.add(user3)
-    child_org_1.users.append(user3)
-    session.commit()
-
-    pout = child_org_1.to_proto()
+    #create session
     
-    results = session.query(User).filter(User.name.ilike("%regular%")).all()
-
+    ptag = dbtag.to_proto()
+    
+    dbses = Session(tag=dbtag, user=dbtag.user)
+    session.add(dbses)
+    session.commit()
+    
+    pses = dbses.to_proto(exclude_cols=["sessions"])
+    
+    
     

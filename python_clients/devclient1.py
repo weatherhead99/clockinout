@@ -52,10 +52,7 @@ req = TagProvisionMessage(tag=ti)
 #resp = client.ProvisionTag(req)
 #resp= client.DeProvisionTag(ti)
 
-resp = client.UserAddAssociation(AssociationRequest(user=UserInfo(id=4), tag=ti))
-
-
-resp = client.ClockInOutTag(ClockInOutRequest(tag=ti))
+all_users = client.QueryUsers(UserQueryRequest(user_filter=UserInfo(), return_orgs=True))
 
 
 
